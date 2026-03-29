@@ -10,8 +10,8 @@ from api.app import app, bc
 def reset_blockchain():
     """Reset blockchain state before each test."""
     bc.chain.clear()
-    bc.credits.clear()
-    bc.ownership.clear()
+    bc.contract.credits.clear()
+    bc.contract.ownership.clear()
     bc.pending_transactions.clear()
     bc.create_genesis_block()
     yield

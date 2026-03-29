@@ -2,6 +2,7 @@ import json
 import os
 
 from .block import Block
+from .contract import CarbonCreditContract
 from .types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
 
 _DEFAULT_DATA_FILE = os.path.join(
@@ -10,19 +11,42 @@ _DEFAULT_DATA_FILE = os.path.join(
 
 
 class Blockchain:
+    """
+    Blockchain infrastructure layer.
+
+    Manages the append-only chain of blocks, Proof-of-Work mining, and
+    persistence. All business logic (credit lifecycle, validation rules,
+    endorsement policy) is delegated to the CarbonCreditContract.
+    """
+
     def __init__(self, difficulty: int = 2, data_file: str | None = _DEFAULT_DATA_FILE):
         self.difficulty           = difficulty
         self.chain: list[Block]   = []
         self.pending_transactions: list[dict] = []
-        self.credits: dict        = {}   # credit_id -> credit details dict
-        self.ownership: dict      = {}   # (credit_id, owner_id) -> units held
         self._data_file           = data_file
 
-        # Endorsement policy: require both developer and regulator approval
-        self.endorsement_policy_enabled = True
+        # Smart contract instance — owns all credit state and business rules
+        self.contract = CarbonCreditContract()
 
         if not self._load():
             self.create_genesis_block()
+
+    # ── Convenience accessors (delegate to contract) ─────────────────────
+    @property
+    def credits(self) -> dict:
+        return self.contract.credits
+
+    @property
+    def ownership(self) -> dict:
+        return self.contract.ownership
+
+    @property
+    def endorsement_policy_enabled(self) -> bool:
+        return self.contract.endorsement_policy_enabled
+
+    @endorsement_policy_enabled.setter
+    def endorsement_policy_enabled(self, value: bool):
+        self.contract.endorsement_policy_enabled = value
 
     # ── Genesis ──────────────────────────────────────────────────────────
     def create_genesis_block(self):
@@ -38,39 +62,8 @@ class Blockchain:
         self.pending_transactions.append(tx)
 
     def apply_transaction(self, tx: dict):
-        tx_type = tx["type"]
-
-        if tx_type == MINT_CREDIT:
-            credit_id    = tx["credit_id"]
-            owner_id     = tx["owner_id"]
-            tonnes       = tx["tonnes"]
-            self.credits[credit_id] = {
-                "tonnes":        tonnes,
-                "project_type":  tx["project_type"],
-                "vintage_year":  tx["vintage_year"],
-                "ai_risk_score": tx["ai_risk_score"],
-                "status":        "active",
-            }
-            self.ownership[(credit_id, owner_id)] = tonnes
-
-        elif tx_type == TRANSFER_CREDIT:
-            credit_id  = tx["credit_id"]
-            from_owner = tx["from_owner"]
-            to_owner   = tx["to_owner"]
-            units      = tx["units"]
-            if self.credits[credit_id]["status"] != "active":
-                raise ValueError(f"Credit {credit_id} is already retired.")
-            if self.ownership.get((credit_id, from_owner), 0) < units:
-                raise ValueError(f"Insufficient units: {from_owner} does not hold {units} of {credit_id}.")
-            self.ownership[(credit_id, from_owner)] -= units
-            self.ownership[(credit_id, to_owner)]    = self.ownership.get((credit_id, to_owner), 0) + units
-
-        elif tx_type == RETIRE_CREDIT:
-            credit_id = tx["credit_id"]
-            owner_id  = tx["owner_id"]
-            if self.ownership.get((credit_id, owner_id), 0) <= 0:
-                raise ValueError(f"No units to retire: {owner_id} holds 0 of {credit_id}.")
-            self.credits[credit_id]["status"] = "retired"
+        """Delegate all business logic to the smart contract."""
+        self.contract.execute(tx)
 
     def mine_pending_transactions(self):
         if not self.pending_transactions:
@@ -133,13 +126,8 @@ class Blockchain:
 
     # ── Endorsement policy check ─────────────────────────────────────────
     def check_endorsement(self, developer_id: str | None, regulator_id: str | None):
-        """Raise if endorsement policy is enabled but signatures are missing."""
-        if not self.endorsement_policy_enabled:
-            return
-        if not developer_id or not developer_id.strip():
-            raise ValueError("Endorsement policy requires a developer_id.")
-        if not regulator_id or not regulator_id.strip():
-            raise ValueError("Endorsement policy requires a regulator_id (government approval).")
+        """Delegate endorsement check to the smart contract."""
+        self.contract.check_endorsement(developer_id, regulator_id)
 
     # ── Persistence ──────────────────────────────────────────────────────
     def _save(self):
