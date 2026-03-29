@@ -28,3 +28,27 @@ class Block:
         while not self.hash.startswith(target):
             self.nonce += 1
             self.hash = self.calculate_hash()
+
+    # ── Serialisation helpers ────────────────────────────────────────────
+    def to_dict(self) -> dict:
+        return {
+            "index":         self.index,
+            "transactions":  self.transactions,
+            "previous_hash": self.previous_hash,
+            "nonce":         self.nonce,
+            "timestamp":     self.timestamp,
+            "merkle_root":   self.merkle_root,
+            "hash":          self.hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Block":
+        block = cls.__new__(cls)
+        block.index         = data["index"]
+        block.transactions  = data["transactions"]
+        block.previous_hash = data["previous_hash"]
+        block.nonce         = data["nonce"]
+        block.timestamp     = data["timestamp"]
+        block.merkle_root   = data["merkle_root"]
+        block.hash          = data["hash"]
+        return block

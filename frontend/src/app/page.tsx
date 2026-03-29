@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { fetchChainStats, type ChainStatsResponse } from "@/lib/api";
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 18 },
@@ -23,6 +25,11 @@ const fadeInUp = {
 
 export default function Home() {
   const router = useRouter();
+  const [stats, setStats] = useState<ChainStatsResponse | null>(null);
+
+  useEffect(() => {
+    fetchChainStats().then(setStats).catch(() => {});
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
@@ -116,8 +123,8 @@ export default function Home() {
               </CardHeader>
               <CardContent className="space-y-5 p-5">
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Model Confidence</span>
-                  <span className="font-semibold text-emerald-300">98.22%</span>
+                  <span className="text-muted-foreground">Chain Length</span>
+                  <span className="font-semibold text-emerald-300">{stats?.chain_length ?? "—"} blocks</span>
                 </div>
                 <div className="h-2 rounded-full bg-secondary/80">
                   <div className="h-2 w-[82%] rounded-full bg-primary" />
@@ -126,11 +133,11 @@ export default function Home() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="rounded-lg border border-border/60 bg-background/50 p-3">
                     <p className="text-xs text-muted-foreground">Credits Scanned</p>
-                    <p className="mt-1 text-xl font-semibold">10,975</p>
+                    <p className="mt-1 text-xl font-semibold">{stats?.total_credits?.toLocaleString() ?? "—"}</p>
                   </div>
                   <div className="rounded-lg border border-border/60 bg-background/50 p-3">
                     <p className="text-xs text-muted-foreground">Fraud Flags</p>
-                    <p className="mt-1 text-xl font-semibold">548</p>
+                    <p className="mt-1 text-xl font-semibold">{stats?.flagged_high_risk?.toLocaleString() ?? "—"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -156,12 +163,12 @@ export default function Home() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <ShieldCheck className="h-5 w-5 text-primary" />
-                Dual-Key Cryptography
+                Dual-Key Endorsement
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm leading-6 text-muted-foreground">
-              Requires both Developer and Government signatures, making
-              unilateral forgery mathematically impossible.
+              Requires both Developer and Regulator endorsement before any
+              credit can be minted, preventing unilateral forgery.
             </CardContent>
           </Card>
 
@@ -194,7 +201,7 @@ export default function Home() {
             <div>
               <p className="font-medium">Institution-Ready Audit Trail</p>
               <p className="text-sm text-muted-foreground">
-                Transaction hashes, ownership state, and validity checks in one place.
+                Full transaction history per credit with block-level traceability.
               </p>
             </div>
           </div>

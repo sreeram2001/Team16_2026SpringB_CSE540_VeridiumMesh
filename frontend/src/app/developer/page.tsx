@@ -25,6 +25,8 @@ import {
   type TransferPayload,
   type RetirePayload,
   type MintResponse,
+  fetchCreditHistory,
+  type CreditHistoryResponse,
 } from "@/lib/api";
 
 function riskVariant(score: number): "destructive" | "outline" | "default" {
@@ -49,6 +51,8 @@ type MintFormState = {
   tonnes: string;
   vintage_year: string;
   owner_id: string;
+  developer_id: string;
+  regulator_id: string;
 };
 
 type TransferFormState = {
@@ -64,6 +68,8 @@ const initialMint: MintFormState = {
   tonnes: "500000",
   vintage_year: "2011",
   owner_id: "Shady-Dev-Corp",
+  developer_id: "Dev-Org-Alpha",
+  regulator_id: "GOV-EPA-001",
 };
 
 const initialTransfer: TransferFormState = {
@@ -97,6 +103,8 @@ export default function DeveloperPage() {
       tonnes: Number(mintForm.tonnes),
       vintage_year: Number(mintForm.vintage_year),
       owner_id: mintForm.owner_id.trim(),
+      developer_id: mintForm.developer_id.trim(),
+      regulator_id: mintForm.regulator_id.trim(),
       // r_ratio / m_flag / t_flag intentionally omitted — backend auto-computes them
     };
 
@@ -169,11 +177,10 @@ export default function DeveloperPage() {
 
         {message && (
           <div
-            className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${
-              message.type === "ok"
-                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                : "border-red-500/40 bg-red-500/10 text-red-200"
-            }`}
+            className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${message.type === "ok"
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
+              : "border-red-500/40 bg-red-500/10 text-red-200"
+              }`}
           >
             {message.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
             {message.text}
@@ -251,10 +258,33 @@ export default function DeveloperPage() {
                   />
                 </div>
 
+                {/* Endorsement policy: dual approval */}
+                <div className="grid gap-2">
+                  <Label htmlFor="developer_id">Developer ID (Endorsement)</Label>
+                  <Input
+                    id="developer_id"
+                    placeholder="e.g. Dev-Org-Alpha"
+                    value={mintForm.developer_id}
+                    onChange={(e) => setMintForm((p) => ({ ...p, developer_id: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="regulator_id">Regulator ID (Gov. Approval)</Label>
+                  <Input
+                    id="regulator_id"
+                    placeholder="e.g. GOV-EPA-001"
+                    value={mintForm.regulator_id}
+                    onChange={(e) => setMintForm((p) => ({ ...p, regulator_id: e.target.value }))}
+                    required
+                  />
+                </div>
+
                 {/* Notice about auto-computed features */}
                 <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground md:col-span-2">
                   <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                  Risk features (R ratio, M flag, T flag, Vintage Age) are automatically derived by the AI engine from the fields above.
+                  Risk features (R ratio, M flag, T flag, Vintage Age) are automatically derived by the AI engine. Endorsement policy requires both Developer and Regulator approval to mint.
                 </div>
 
                 <div className="md:col-span-2">

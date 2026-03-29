@@ -4,6 +4,8 @@ export type MintPayload = {
   tonnes: number;
   vintage_year: number;
   owner_id: string;
+  developer_id?: string;
+  regulator_id?: string;
   // Optional — omit to let backend auto-compute
   r_ratio?: number;
   m_flag?: number;
@@ -50,6 +52,20 @@ export type CreditResponse = {
     status: string;
   };
   ownership: Record<string, number>;
+};
+
+export type CreditHistoryResponse = {
+  credit_id: string;
+  history: Array<Record<string, unknown>>;
+};
+
+export type ChainStatsResponse = {
+  total_credits: number;
+  active_credits: number;
+  retired_credits: number;
+  flagged_high_risk: number;
+  total_transactions: number;
+  chain_length: number;
 };
 
 export type ChainResponse = {
@@ -115,6 +131,14 @@ export function retireCredit(payload: RetirePayload) {
 
 export function fetchCredit(creditId: string) {
   return apiRequest<CreditResponse>(`/credits/${encodeURIComponent(creditId)}`);
+}
+
+export function fetchCreditHistory(creditId: string) {
+  return apiRequest<CreditHistoryResponse>(`/credits/${encodeURIComponent(creditId)}/history`);
+}
+
+export function fetchChainStats() {
+  return apiRequest<ChainStatsResponse>("/chain/stats");
 }
 
 export function fetchChain() {

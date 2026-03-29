@@ -49,9 +49,10 @@ frontend/.pnp
 frontend/.pnp.*
 frontend/coverage/
 
-# Data (large Excel file)
+# Data (large Excel file + runtime chain persistence)
 data/*.xlsx
 data/~$*
+data/chain.json
 
 # OS temp
 Thumbs.db

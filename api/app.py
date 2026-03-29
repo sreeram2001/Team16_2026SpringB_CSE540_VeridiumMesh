@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from blockchain.blockchain import Blockchain
 from blockchain.types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
@@ -35,7 +35,7 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Pydantic request schemas
+# Pydantic request schemas with input validation
 # ---------------------------------------------------------------------------
 
 class MintRequest(BaseModel):
@@ -44,10 +44,34 @@ class MintRequest(BaseModel):
     tonnes: int
     vintage_year: int
     owner_id: str
+    # Endorsement policy fields
+    developer_id: Optional[str] = None
+    regulator_id: Optional[str] = None
     # Optional — if omitted the backend auto-computes them
     r_ratio: Optional[float] = None
     m_flag:  Optional[int]   = None
     t_flag:  Optional[int]   = None
+
+    @field_validator("project_id", "project_type", "owner_id")
+    @classmethod
+    def not_blank(cls, v: str, info) -> str:
+        if not v or not v.strip():
+            raise ValueError(f"{info.field_name} must not be blank.")
+        return v.strip()
+
+    @field_validator("tonnes")
+    @classmethod
+    def positive_tonnes(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("tonnes must be a positive integer.")
+        return v
+
+    @field_validator("vintage_year")
+    @classmethod
+    def valid_vintage(cls, v: int) -> int:
+        if v < 1990 or v > 2026:
+            raise ValueError("vintage_year must be between 1990 and 2026.")
+        return v
 
 
 class TransferRequest(BaseModel):
@@ -56,15 +80,35 @@ class TransferRequest(BaseModel):
     to_owner:   str
     units:      int
 
+    @field_validator("credit_id", "from_owner", "to_owner")
+    @classmethod
+    def not_blank(cls, v: str, info) -> str:
+        if not v or not v.strip():
+            raise ValueError(f"{info.field_name} must not be blank.")
+        return v.strip()
+
+    @field_validator("units")
+    @classmethod
+    def positive_units(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("units must be a positive integer.")
+        return v
+
 
 class RetireRequest(BaseModel):
     credit_id: str
     owner_id:  str
 
+    @field_validator("credit_id", "owner_id")
+    @classmethod
+    def not_blank(cls, v: str, info) -> str:
+        if not v or not v.strip():
+            raise ValueError(f"{info.field_name} must not be blank.")
+        return v.strip()
+
 
 # ---------------------------------------------------------------------------
 # Feature auto-computation
-# High-risk project types that warrant m_flag = 1
 # ---------------------------------------------------------------------------
 
 _HIGH_RISK_TYPES = {
@@ -86,14 +130,19 @@ def auto_compute_features(
 
 
 # ---------------------------------------------------------------------------
-# POST /credits/issue — Mint (auto-scores + mines)
+# POST /credits/issue — Mint (endorsement + auto-scores + mines)
 # ---------------------------------------------------------------------------
 
 @app.post("/credits/issue", status_code=201)
 def issue_credit(req: MintRequest):
+    # Endorsement policy: require both developer and regulator approval
+    try:
+        bc.check_endorsement(req.developer_id, req.regulator_id)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     vintage_age = 2026 - req.vintage_year
 
-    # Auto-compute if any feature is missing
     if req.r_ratio is None or req.m_flag is None or req.t_flag is None:
         r_ratio, m_flag, t_flag = auto_compute_features(req.project_type, req.tonnes)
     else:
@@ -120,6 +169,8 @@ def issue_credit(req: MintRequest):
         "vintage_year":      req.vintage_year,
         "ai_risk_score":     risk_score,
         "owner_id":          req.owner_id,
+        "developer_id":      req.developer_id,
+        "regulator_id":      req.regulator_id,
         "computed_features": computed_features,
         "timestamp":         time.time(),
     }
@@ -217,6 +268,29 @@ def get_credit(credit_id: str):
         "details":   bc.credits[credit_id],
         "ownership": ownership,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /credits/{credit_id}/history — Audit trail
+# ---------------------------------------------------------------------------
+
+@app.get("/credits/{credit_id}/history")
+def get_credit_history(credit_id: str):
+    if credit_id not in bc.credits:
+        raise HTTPException(status_code=404, detail=f"Credit '{credit_id}' not found.")
+    return {
+        "credit_id": credit_id,
+        "history":   bc.get_credit_history(credit_id),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /chain/stats — Live statistics
+# ---------------------------------------------------------------------------
+
+@app.get("/chain/stats")
+def get_chain_stats():
+    return bc.get_stats()
 
 
 # ---------------------------------------------------------------------------

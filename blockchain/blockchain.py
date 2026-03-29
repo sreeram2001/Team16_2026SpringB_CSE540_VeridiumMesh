@@ -1,16 +1,30 @@
+import json
+import os
+
 from .block import Block
 from .types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
 
+_DEFAULT_DATA_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "data", "chain.json"
+)
+
 
 class Blockchain:
-    def __init__(self, difficulty: int = 2):
+    def __init__(self, difficulty: int = 2, data_file: str | None = _DEFAULT_DATA_FILE):
         self.difficulty           = difficulty
-        self.chain                = []
-        self.pending_transactions = []
-        self.credits              = {}   # credit_id -> credit details dict
-        self.ownership            = {}   # (credit_id, owner_id) -> units held
-        self.create_genesis_block()
+        self.chain: list[Block]   = []
+        self.pending_transactions: list[dict] = []
+        self.credits: dict        = {}   # credit_id -> credit details dict
+        self.ownership: dict      = {}   # (credit_id, owner_id) -> units held
+        self._data_file           = data_file
 
+        # Endorsement policy: require both developer and regulator approval
+        self.endorsement_policy_enabled = True
+
+        if not self._load():
+            self.create_genesis_block()
+
+    # ── Genesis ──────────────────────────────────────────────────────────
     def create_genesis_block(self):
         genesis = Block(index=0, transactions=[], previous_hash="0")
         genesis.mine_block(self.difficulty)
@@ -19,6 +33,7 @@ class Blockchain:
     def get_latest_block(self) -> Block:
         return self.chain[-1]
 
+    # ── Transactions ─────────────────────────────────────────────────────
     def add_transaction(self, tx: dict):
         self.pending_transactions.append(tx)
 
@@ -70,59 +85,86 @@ class Blockchain:
         for tx in new_block.transactions:
             self.apply_transaction(tx)
         self.pending_transactions = []
+        self._save()
         return new_block
 
     def is_chain_valid(self) -> bool:
         for i in range(1, len(self.chain)):
             current  = self.chain[i]
             previous = self.chain[i - 1]
+            # Verify merkle root matches actual transactions
+            if current.merkle_root != current.calculate_merkle_root():
+                return False
             if current.hash != current.calculate_hash():
                 return False
             if current.previous_hash != previous.hash:
                 return False
         return True
 
+    # ── Query History (audit trail) ──────────────────────────────────────
+    def get_credit_history(self, credit_id: str) -> list[dict]:
+        """Walk the entire chain and return every transaction for a credit."""
+        history = []
+        for block in self.chain:
+            for tx in block.transactions:
+                if tx.get("credit_id") == credit_id:
+                    history.append({
+                        **tx,
+                        "block_index": block.index,
+                        "block_hash":  block.hash,
+                    })
+        return history
 
-if __name__ == "__main__":
-    from blockchain.types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
+    # ── Chain stats ──────────────────────────────────────────────────────
+    def get_stats(self) -> dict:
+        total_credits = len(self.credits)
+        active   = sum(1 for c in self.credits.values() if c["status"] == "active")
+        retired  = sum(1 for c in self.credits.values() if c["status"] == "retired")
+        flagged  = sum(1 for c in self.credits.values() if c["ai_risk_score"] >= 0.8)
+        total_tx = sum(len(b.transactions) for b in self.chain)
+        return {
+            "total_credits":  total_credits,
+            "active_credits": active,
+            "retired_credits": retired,
+            "flagged_high_risk": flagged,
+            "total_transactions": total_tx,
+            "chain_length": len(self.chain),
+        }
 
-    print("Initializing VeridiumAI Blockchain...")
-    bc = Blockchain(difficulty=2)
+    # ── Endorsement policy check ─────────────────────────────────────────
+    def check_endorsement(self, developer_id: str | None, regulator_id: str | None):
+        """Raise if endorsement policy is enabled but signatures are missing."""
+        if not self.endorsement_policy_enabled:
+            return
+        if not developer_id or not developer_id.strip():
+            raise ValueError("Endorsement policy requires a developer_id.")
+        if not regulator_id or not regulator_id.strip():
+            raise ValueError("Endorsement policy requires a regulator_id (government approval).")
 
-    # 1. Mint a credit
-    print("\nMinting a new carbon credit...")
-    bc.add_transaction({
-        "type":          MINT_CREDIT,
-        "credit_id":     "CRED-001",
-        "tonnes":        1000,
-        "project_type":  "Cookstoves",
-        "vintage_year":  2024,
-        "ai_risk_score": 0.95,   # highly suspicious!
-        "owner_id":      "Developer-Org",
-    })
-    bc.mine_pending_transactions()
-    print("Credits State:", bc.credits)
-    print("Ownership State:", dict(bc.ownership))
+    # ── Persistence ──────────────────────────────────────────────────────
+    def _save(self):
+        if not self._data_file:
+            return
+        payload = {
+            "difficulty": self.difficulty,
+            "chain": [b.to_dict() for b in self.chain],
+        }
+        os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
+        with open(self._data_file, "w") as f:
+            json.dump(payload, f)
 
-    # 2. Transfer 400 tonnes to Buyer-A
-    print("\nTransferring 400 tonnes to Buyer-A...")
-    bc.add_transaction({
-        "type":       TRANSFER_CREDIT,
-        "credit_id":  "CRED-001",
-        "from_owner": "Developer-Org",
-        "to_owner":   "Buyer-A",
-        "units":      400,
-    })
-    bc.mine_pending_transactions()
-    print("Ownership State:", dict(bc.ownership))
-
-    # 3. Buyer-A retires the credit
-    print("\nBuyer-A retires the credit...")
-    bc.add_transaction({
-        "type":      RETIRE_CREDIT,
-        "credit_id": "CRED-001",
-        "owner_id":  "Buyer-A",
-    })
-    bc.mine_pending_transactions()
-    print("Credit Status:", bc.credits["CRED-001"]["status"])
-    print(f"\nIs chain valid? {bc.is_chain_valid()}")
+    def _load(self) -> bool:
+        if not self._data_file or not os.path.exists(self._data_file):
+            return False
+        try:
+            with open(self._data_file, "r") as f:
+                payload = json.load(f)
+            self.difficulty = payload.get("difficulty", self.difficulty)
+            self.chain = [Block.from_dict(bd) for bd in payload["chain"]]
+            # Replay all transactions to rebuild state
+            for block in self.chain:
+                for tx in block.transactions:
+                    self.apply_transaction(tx)
+            return True
+        except (json.JSONDecodeError, KeyError):
+            return False
