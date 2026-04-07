@@ -4,6 +4,7 @@ import os
 from .block import Block
 from .contract import CarbonCreditContract
 from .types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
+from .wallet import verify_signature
 
 _DEFAULT_DATA_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "data", "chain.json"
@@ -59,6 +60,21 @@ class Blockchain:
 
     # ── Transactions ─────────────────────────────────────────────────────
     def add_transaction(self, tx: dict):
+        """
+        Add a transaction to the pending pool.
+        TRANSFER_CREDIT and RETIRE_CREDIT transactions MUST include:
+            "signature":  <hex ECDSA signature over the tx body>
+            "public_key": <hex verifying key of the signer>
+        """
+        signed_types = (TRANSFER_CREDIT, RETIRE_CREDIT)
+        if tx.get("type") in signed_types:
+            signature  = tx.get("signature")
+            public_key = tx.get("public_key")
+            if not signature or not public_key:
+                raise ValueError("Transaction missing required 'signature' and 'public_key' fields.")
+            tx_body = {k: v for k, v in tx.items() if k not in ("signature", "public_key")}
+            if not verify_signature(tx_body, signature, public_key):
+                raise ValueError("Invalid transaction signature — authorization denied.")
         self.pending_transactions.append(tx)
 
     def apply_transaction(self, tx: dict):

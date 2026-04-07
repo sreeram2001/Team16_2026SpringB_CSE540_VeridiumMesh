@@ -13,6 +13,7 @@ from pydantic import BaseModel, field_validator
 
 from blockchain.blockchain import Blockchain
 from blockchain.types import MINT_CREDIT, TRANSFER_CREDIT, RETIRE_CREDIT
+from blockchain.wallet import generate_keypair, sign_transaction
 from ml.model import score_project
 
 app = FastAPI(
@@ -79,6 +80,8 @@ class TransferRequest(BaseModel):
     from_owner: str
     to_owner:   str
     units:      int
+    signature:  str          # hex ECDSA signature over the tx body
+    public_key: str          # hex verifying key of from_owner
 
     @field_validator("credit_id", "from_owner", "to_owner")
     @classmethod
@@ -96,8 +99,10 @@ class TransferRequest(BaseModel):
 
 
 class RetireRequest(BaseModel):
-    credit_id: str
-    owner_id:  str
+    credit_id:  str
+    owner_id:   str
+    signature:  str          # hex ECDSA signature over the tx body
+    public_key: str          # hex verifying key of owner
 
     @field_validator("credit_id", "owner_id")
     @classmethod
@@ -196,7 +201,7 @@ def issue_credit(req: MintRequest):
 
 @app.post("/credits/transfer")
 def transfer_credit(req: TransferRequest):
-    tx = {
+    tx_body = {
         "type":       TRANSFER_CREDIT,
         "credit_id":  req.credit_id,
         "from_owner": req.from_owner,
@@ -204,6 +209,7 @@ def transfer_credit(req: TransferRequest):
         "units":      req.units,
         "timestamp":  time.time(),
     }
+    tx = {**tx_body, "signature": req.signature, "public_key": req.public_key}
     try:
         bc.add_transaction(tx)
         block = bc.mine_pending_transactions()
@@ -227,12 +233,13 @@ def transfer_credit(req: TransferRequest):
 
 @app.post("/credits/retire")
 def retire_credit(req: RetireRequest):
-    tx = {
+    tx_body = {
         "type":      RETIRE_CREDIT,
         "credit_id": req.credit_id,
         "owner_id":  req.owner_id,
         "timestamp": time.time(),
     }
+    tx = {**tx_body, "signature": req.signature, "public_key": req.public_key}
     try:
         bc.add_transaction(tx)
         block = bc.mine_pending_transactions()
@@ -246,6 +253,34 @@ def retire_credit(req: RetireRequest):
         "block_hash":  block.hash,
         "status":      "retired",
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /wallet/new — generate an ECDSA key pair
+# ---------------------------------------------------------------------------
+
+@app.post("/wallet/new")
+def new_wallet():
+    """
+    Returns a fresh ECDSA private/public key pair.
+    WARNING: Store the private key securely — the server never stores it.
+    """
+    return generate_keypair()
+
+
+# ---------------------------------------------------------------------------
+# POST /wallet/sign — sign a transaction body (dev/demo helper)
+# ---------------------------------------------------------------------------
+
+class SignRequest(BaseModel):
+    private_key: str
+    tx_body:     dict
+
+@app.post("/wallet/sign")
+def wallet_sign(req: SignRequest):
+    """Sign a tx_body dict with the given private key. For demo use only."""
+    sig = sign_transaction(req.tx_body, req.private_key)
+    return {"signature": sig}
 
 
 # ---------------------------------------------------------------------------
