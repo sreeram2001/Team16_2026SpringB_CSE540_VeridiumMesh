@@ -8,12 +8,14 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const fallback = `Request failed (${res.status})`;
+    let message = fallback;
     try {
       const data = await res.json();
-      throw new Error(data?.detail ?? data?.error ?? fallback);
+      message = data?.detail ?? data?.error ?? fallback;
     } catch {
-      throw new Error(fallback);
+      // JSON parse failed, use fallback
     }
+    throw new Error(message);
   }
 
   return (await res.json()) as T;
@@ -49,6 +51,7 @@ export type MintResponse = {
   tx_hash: string;
   block_number: number;
   contract_address: string;
+  pow_nonce: number;
   status: string;
 };
 
@@ -70,6 +73,18 @@ export type ChainStatsResponse = {
   latest_block: number;
   contract_address: string;
   node_url: string;
+  merkle_root: string;
+  total_credits: number;
+};
+
+export type MerkleProofResponse = {
+  credit_id: string;
+  leaf_hash: string;
+  leaf_index: number;
+  merkle_root: string;
+  proof: string[];
+  proof_length: number;
+  total_credits: number;
 };
 
 export type ChainEvent =
@@ -132,4 +147,8 @@ export function fetchEvents() {
 
 export function fetchStakeholders() {
   return apiRequest<Stakeholder[]>("/stakeholders");
+}
+
+export function fetchCreditProof(creditId: string) {
+  return apiRequest<MerkleProofResponse>(`/credits/${encodeURIComponent(creditId)}/proof`);
 }

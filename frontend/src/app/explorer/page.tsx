@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   ArrowLeft, Search, Globe, Hash, Blocks, FileCode2,
   Loader2, Activity, ArrowRightLeft, Flame, Sprout,
+  TreePine, ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,10 +18,13 @@ import {
   fetchChainStats,
   fetchCredit,
   fetchEvents,
+  fetchCreditProof,
   type ChainStatsResponse,
   type CreditResponse,
   type ChainEvent,
+  type MerkleProofResponse,
 } from "@/lib/api";
+import { verifyCredit } from "@/lib/contract";
 
 function riskColor(score: number) {
   if (score >= 0.7) return { bg: "bg-red-50", border: "border-red-200", text: "text-red-700", label: "HIGH RISK" };
@@ -103,6 +107,13 @@ export default function ExplorerPage() {
   const [searching, setSearching]   = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
 
+  // Merkle proof state
+  const [proofData, setProofData]           = useState<MerkleProofResponse | null>(null);
+  const [proofLoading, setProofLoading]     = useState(false);
+  const [proofError, setProofError]         = useState<string | null>(null);
+  const [verifyResult, setVerifyResult]     = useState<boolean | null>(null);
+  const [verifyLoading, setVerifyLoading]   = useState(false);
+
   async function loadStats() {
     setLoadingStats(true);
     setError(null);
@@ -138,12 +149,43 @@ export default function ExplorerPage() {
     setSearching(true);
     setError(null);
     setCreditData(null);
+    setProofData(null);
+    setProofError(null);
+    setVerifyResult(null);
     try {
       setCreditData(await fetchCredit(creditId.trim()));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Credit not found.");
     } finally {
       setSearching(false);
+    }
+  }
+
+  async function onGetProof() {
+    if (!creditData) return;
+    setProofLoading(true);
+    setProofError(null);
+    setProofData(null);
+    setVerifyResult(null);
+    try {
+      setProofData(await fetchCreditProof(creditData.credit_id));
+    } catch (err) {
+      setProofError(err instanceof Error ? err.message : "Failed to get proof.");
+    } finally {
+      setProofLoading(false);
+    }
+  }
+
+  async function onVerifyOnChain() {
+    if (!proofData) return;
+    setVerifyLoading(true);
+    try {
+      const ok = await verifyCredit(proofData.proof, proofData.leaf_hash);
+      setVerifyResult(ok);
+    } catch (err) {
+      setProofError(err instanceof Error ? err.message : "Verification failed.");
+    } finally {
+      setVerifyLoading(false);
     }
   }
 
@@ -175,21 +217,23 @@ export default function ExplorerPage() {
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
         )}
 
-        {/* Chain stats */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Chain stats — now 6 cards: 4 base + Merkle Root + Total Credits */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {[
-            { icon: <Globe className="h-5 w-5 text-primary" />, label: "Network",      value: chainStats?.network },
-            { icon: <Hash className="h-5 w-5 text-primary" />,  label: "Chain ID",     value: chainStats?.chain_id?.toString() },
-            { icon: <Blocks className="h-5 w-5 text-primary" />,label: "Latest Block", value: chainStats ? `#${chainStats.latest_block}` : undefined },
-            { icon: <FileCode2 className="h-5 w-5 text-primary" />, label: "Contract", value: chainStats ? shorten(chainStats.contract_address) : undefined },
+            { icon: <Globe className="h-5 w-5 text-primary" />, label: "Network",         value: chainStats?.network },
+            { icon: <Hash className="h-5 w-5 text-primary" />,  label: "Chain ID",        value: chainStats?.chain_id?.toString() },
+            { icon: <Blocks className="h-5 w-5 text-primary" />,label: "Latest Block",    value: chainStats ? `#${chainStats.latest_block}` : undefined },
+            { icon: <FileCode2 className="h-5 w-5 text-primary" />, label: "Contract",    value: chainStats ? shorten(chainStats.contract_address) : undefined },
+            { icon: <Sprout className="h-5 w-5 text-emerald-600" />, label: "Total Credits", value: chainStats ? chainStats.total_credits.toString() : undefined },
+            { icon: <TreePine className="h-5 w-5 text-emerald-700" />, label: "Merkle Root", value: chainStats?.merkle_root ? shorten(chainStats.merkle_root, 8) : undefined, mono: true },
           ].map(({ icon, label, value }) => (
             <Card key={label} className="border border-border/70 bg-white shadow-sm">
               <CardContent className="pt-5">
                 <div className="flex items-start gap-3">
                   {icon}
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-                    <p className="mt-1 font-mono font-semibold">{value ?? "—"}</p>
+                    <p className="mt-1 font-mono font-semibold break-all">{value ?? "—"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -286,6 +330,87 @@ export default function ExplorerPage() {
                           <p className="mt-0.5 font-mono text-sm font-medium break-all">{value}</p>
                         </div>
                       ))}
+                    </div>
+
+                    {/* Merkle Proof section */}
+                    <Separator />
+                    <div className="space-y-3">
+                      <p className="flex items-center gap-2 text-sm font-semibold">
+                        <TreePine className="h-4 w-4 text-emerald-600" /> Merkle Inclusion Proof
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Cryptographically prove this credit exists in the on-chain Merkle tree without revealing other credits.
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        onClick={onGetProof}
+                        disabled={proofLoading}
+                      >
+                        {proofLoading ? <><Loader2 className="mr-2 h-3 w-3 animate-spin" />Computing…</> : "Get Merkle Proof"}
+                      </Button>
+
+                      {proofError && (
+                        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{proofError}</p>
+                      )}
+
+                      {proofData && (
+                        <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/60 p-4">
+                          <div className="grid gap-2 text-xs">
+                            <div>
+                              <span className="text-muted-foreground">Leaf Hash</span>
+                              <p className="mt-0.5 break-all font-mono text-emerald-800">{proofData.leaf_hash}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Merkle Root</span>
+                              <p className="mt-0.5 break-all font-mono text-emerald-800">{proofData.merkle_root}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">
+                                Proof path ({proofData.proof_length} sibling{proofData.proof_length !== 1 ? "s" : ""}, leaf #{proofData.leaf_index} of {proofData.total_credits})
+                              </span>
+                              {proofData.proof.length === 0 ? (
+                                <p className="mt-0.5 font-mono text-muted-foreground/60 italic">[ ] — single-leaf tree, root = leaf</p>
+                              ) : (
+                                <ul className="mt-1 space-y-1">
+                                  {proofData.proof.map((p, i) => (
+                                    <li key={i} className="break-all font-mono text-emerald-800">
+                                      [{i}] {p}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={onVerifyOnChain}
+                            disabled={verifyLoading}
+                          >
+                            {verifyLoading
+                              ? <><Loader2 className="mr-2 h-3 w-3 animate-spin" />Verifying on-chain…</>
+                              : <><ShieldCheck className="mr-2 h-3 w-3" />Verify On-Chain</>
+                            }
+                          </Button>
+
+                          {verifyResult !== null && (
+                            <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${
+                              verifyResult
+                                ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                                : "border-red-300 bg-red-100 text-red-800"
+                            }`}>
+                              <ShieldCheck className="h-4 w-4 shrink-0" />
+                              {verifyResult
+                                ? "✓ Verified — contract confirms this credit is in the Merkle tree"
+                                : "✗ Verification failed — leaf not found in Merkle tree"
+                              }
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </>
