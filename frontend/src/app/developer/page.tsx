@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, AlertTriangle, CheckCircle2, FlaskConical,
-  Info, Leaf, ArrowRightLeft, Flame, Wallet, LogOut,
+  Info, Leaf, ArrowRightLeft, Flame, Wallet, LogOut, Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,8 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useRouter } from "next/navigation";
-import { issueCredit, fetchStakeholders, type MintPayload, type MintResponse, type Stakeholder } from "@/lib/api";
-import { transferCreditOnChain, retireCreditOnChain, HARDHAT_WALLETS, REGISTRAR_ADDRESS } from "@/lib/contract";
+import { issueCredit, fetchStakeholders, fetchEvents, type MintPayload, type MintResponse, type Stakeholder, type ChainEvent } from "@/lib/api";
+import {
+  transferCreditOnChain, retireCreditOnChain,
+  transferCreditWithMetaMask, retireCreditWithMetaMask,
+  isMetaMaskAvailable, getMetaMaskAddress,
+  HARDHAT_WALLETS, REGISTRAR_ADDRESS,
+} from "@/lib/contract";
 import { useWallet } from "@/lib/WalletContext";
 
 function riskColor(score: number) {
@@ -25,6 +30,22 @@ function riskColor(score: number) {
 
 function sanitizeInt(v: string) {
   return v.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
+}
+
+function computeOwnedCredits(events: ChainEvent[], address: string): string[] {
+  const ownership = new Map<string, string>();
+  for (const ev of events) {
+    if (ev.type === "issued") {
+      ownership.set(ev.credit_id, ev.owner);
+    } else if (ev.type === "transferred") {
+      ownership.set(ev.credit_id, ev.to_address);
+    } else if (ev.type === "retired") {
+      ownership.delete(ev.credit_id);
+    }
+  }
+  return Array.from(ownership.entries())
+    .filter(([, owner]) => owner.toLowerCase() === address.toLowerCase())
+    .map(([creditId]) => creditId);
 }
 
 type Banner = { type: "ok" | "err"; text: string };
@@ -65,9 +86,27 @@ export default function DeveloperPage() {
   const [retireHash, setRetireHash]         = useState<string | null>(null);
   const [retireLoading, setRetireLoading]   = useState(false);
 
+  // Owned credits
+  const [ownedCredits, setOwnedCredits] = useState<string[]>([]);
+
+  // MetaMask
+  const [useMetaMask, setUseMetaMask]         = useState(false);
+  const [metaMaskAddress, setMetaMaskAddress] = useState<string | null>(null);
+  const [metaMaskLoading, setMetaMaskLoading] = useState(false);
+
   useEffect(() => {
     fetchStakeholders().then(setStakeholders).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!wallet) {
+      setOwnedCredits([]);
+      return;
+    }
+    fetchEvents().then(({ events }) => {
+      setOwnedCredits(computeOwnedCredits(events, wallet.address));
+    }).catch(() => {});
+  }, [wallet]);
 
   const isRegistrar = wallet?.address === REGISTRAR_ADDRESS;
 
@@ -80,10 +119,27 @@ export default function DeveloperPage() {
   function disconnectWallet() {
     disconnect();
     setWalletSelect("");
+    setMintResult(null);
+    setMintMsg(null);
     setTxMsg(null);
     setTxHash(null);
     setRetireMsg(null);
     setRetireHash(null);
+    setOwnedCredits([]);
+    setUseMetaMask(false);
+    setMetaMaskAddress(null);
+  }
+
+  async function connectMetaMask() {
+    setMetaMaskLoading(true);
+    try {
+      const addr = await getMetaMaskAddress();
+      setMetaMaskAddress(addr);
+    } catch (err) {
+      setTxMsg({ type: "err", text: err instanceof Error ? err.message : "MetaMask connection failed." });
+    } finally {
+      setMetaMaskLoading(false);
+    }
   }
 
   async function onMintSubmit(e: { preventDefault(): void }) {
@@ -103,6 +159,7 @@ export default function DeveloperPage() {
       const res = await issueCredit(payload);
       setMintResult(res);
       setMintMsg({ type: "ok", text: `✓ Credit ${res.credit_id} minted in block #${res.block_number}.` });
+      setMintForm(initialMint);
     } catch (err) {
       setMintMsg({ type: "err", text: err instanceof Error ? err.message : "Mint failed." });
     } finally {
@@ -117,9 +174,16 @@ export default function DeveloperPage() {
     setTxHash(null);
     setTxLoading(true);
     try {
-      const hash = await transferCreditOnChain(txCreditId.trim(), txTo, wallet.address);
+      const hash = useMetaMask
+        ? await transferCreditWithMetaMask(txCreditId.trim(), txTo)
+        : await transferCreditOnChain(txCreditId.trim(), txTo, wallet.address);
       setTxHash(hash);
       setTxMsg({ type: "ok", text: "✓ Credit transferred successfully." });
+      setTxCreditId("");
+      setTxTo("");
+      fetchEvents().then(({ events }) => {
+        setOwnedCredits(computeOwnedCredits(events, wallet.address));
+      }).catch(() => {});
     } catch (err) {
       setTxMsg({ type: "err", text: err instanceof Error ? err.message : "Transfer failed." });
     } finally {
@@ -134,9 +198,15 @@ export default function DeveloperPage() {
     setRetireHash(null);
     setRetireLoading(true);
     try {
-      const hash = await retireCreditOnChain(retireCreditId.trim(), wallet.address);
+      const hash = useMetaMask
+        ? await retireCreditWithMetaMask(retireCreditId.trim())
+        : await retireCreditOnChain(retireCreditId.trim(), wallet.address);
       setRetireHash(hash);
       setRetireMsg({ type: "ok", text: "✓ Credit permanently retired." });
+      setRetireCreditId("");
+      fetchEvents().then(({ events }) => {
+        setOwnedCredits(computeOwnedCredits(events, wallet.address));
+      }).catch(() => {});
     } catch (err) {
       setRetireMsg({ type: "err", text: err instanceof Error ? err.message : "Retire failed." });
     } finally {
@@ -200,9 +270,50 @@ export default function DeveloperPage() {
                 <p className="font-mono text-xs text-emerald-700">{wallet.address}</p>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={disconnectWallet} className="text-emerald-700 hover:bg-emerald-100">
-              <LogOut className="mr-1.5 h-4 w-4" /> Disconnect
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* MetaMask toggle */}
+              {isMetaMaskAvailable() && (
+                <button
+                  type="button"
+                  onClick={() => { setUseMetaMask((v) => !v); setMetaMaskAddress(null); }}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    useMetaMask
+                      ? "border-orange-300 bg-orange-50 text-orange-700"
+                      : "border-border bg-background text-muted-foreground hover:bg-muted/30"
+                  }`}
+                >
+                  <Shield className="h-3 w-3" />
+                  {useMetaMask ? "MetaMask ON" : "Use MetaMask"}
+                </button>
+              )}
+              <Button variant="ghost" size="sm" onClick={disconnectWallet} className="text-emerald-700 hover:bg-emerald-100">
+                <LogOut className="mr-1.5 h-4 w-4" /> Disconnect
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* MetaMask banner — shown when MetaMask mode is active */}
+        {wallet && useMetaMask && (
+          <div className={`flex items-center justify-between rounded-xl border px-5 py-3 ${
+            metaMaskAddress ? "border-orange-200 bg-orange-50" : "border-amber-200 bg-amber-50"
+          }`}>
+            <div className="flex items-center gap-3">
+              <Shield className={`h-5 w-5 ${metaMaskAddress ? "text-orange-600" : "text-amber-500"}`} />
+              <div>
+                <p className="text-sm font-semibold">
+                  {metaMaskAddress ? "MetaMask connected — signing with browser wallet" : "MetaMask mode active — connect to sign transactions"}
+                </p>
+                {metaMaskAddress && (
+                  <p className="font-mono text-xs text-orange-700">{metaMaskAddress}</p>
+                )}
+              </div>
+            </div>
+            {!metaMaskAddress && (
+              <Button size="sm" onClick={connectMetaMask} disabled={metaMaskLoading} className="bg-orange-500 hover:bg-orange-600 text-white shrink-0">
+                {metaMaskLoading ? "Connecting…" : "Connect MetaMask"}
+              </Button>
+            )}
           </div>
         )}
 
@@ -391,9 +502,14 @@ export default function DeveloperPage() {
                         ))}
                     </select>
                   </div>
-                  <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-muted-foreground">
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
-                    Signed with {wallet.name}'s key. The contract will reject this if you are not the current owner.
+                  <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs text-muted-foreground ${
+                    useMetaMask ? "border-orange-100 bg-orange-50/60" : "border-blue-100 bg-blue-50/60"
+                  }`}>
+                    {useMetaMask ? <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" /> : <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />}
+                    {useMetaMask
+                      ? "Signing with MetaMask browser wallet. Make sure MetaMask is connected to Hardhat Localhost 8545."
+                      : `Signed with ${wallet.name}'s key. The contract will reject this if you are not the current owner.`
+                    }
                   </div>
                   <Button type="submit" disabled={txLoading} variant="outline" className="w-full border-primary/40 text-primary hover:bg-primary/5">
                     {txLoading ? "Signing & Sending…" : "Transfer Credit"}
@@ -436,7 +552,8 @@ export default function DeveloperPage() {
                   </div>
                   <div className="flex items-start gap-2 rounded-lg border border-orange-100 bg-orange-50/60 px-3 py-2 text-xs text-muted-foreground">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
-                    Retirement is <strong className="mx-0.5">irreversible</strong>. The credit is permanently burned on-chain. Signed as {wallet.name}.
+                    Retirement is <strong className="mx-0.5">irreversible</strong>. The credit is permanently burned on-chain.{" "}
+                    {useMetaMask ? "Signing via MetaMask." : `Signed as ${wallet.name}.`}
                   </div>
                   <Button type="submit" disabled={retireLoading} variant="outline" className="w-full border-orange-300 text-orange-600 hover:bg-orange-50">
                     {retireLoading ? "Signing & Sending…" : "Retire Credit"}
@@ -456,6 +573,37 @@ export default function DeveloperPage() {
           </Card>
 
         </div>}
+
+        {/* Your Credits panel — non-registrar only */}
+        {wallet && !isRegistrar && (
+          <Card className="border border-border/70 bg-white shadow-sm">
+            <CardHeader className="border-b border-border/50 pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Leaf className="h-5 w-5 text-emerald-600" /> Your Credits
+                <Badge className="ml-auto border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-normal">
+                  {ownedCredits.length} owned
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5">
+              {ownedCredits.length === 0 ? (
+                <p className="py-4 text-center text-sm text-muted-foreground">No active credits owned by this wallet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {ownedCredits.map((creditId) => (
+                    <li key={creditId} className="flex items-center justify-between rounded-lg border border-border/60 px-4 py-2">
+                      <span className="font-mono text-sm font-medium text-primary">{creditId}</span>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setTxCreditId(creditId)}>Transfer</Button>
+                        <Button size="sm" variant="outline" onClick={() => setRetireCreditId(creditId)}>Retire</Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
       </div>
     </div>

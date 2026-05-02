@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
@@ -12,7 +14,7 @@ from web3 import Web3
 from ml.model import score_project
 
 
-app = FastAPI(title="Veridium Mesh API", version="2.0.0")
+app = FastAPI(title="Veridium Mesh API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +28,14 @@ HARDHAT_RPC      = os.getenv("HARDHAT_RPC",         "http://127.0.0.1:8545")
 DEPLOYER_ADDRESS = os.getenv("DEPLOYER_ADDRESS",    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 DEPLOYER_KEY     = os.getenv("DEPLOYER_PRIVATE_KEY","0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS",    "0x5FbDB2315678afecb367f032d93F642f64180aa3")
+
+# ── ecrecover endorsement signers ─────────────────────────────────────────────
+# Hardhat account #1 — GreenBuild Solutions (registered as Developer in deploy.js)
+DEVELOPER_SIGNER_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+DEVELOPER_SIGNER_KEY     = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
+# Hardhat account #6 — EPA Registry (registered as Regulator in deploy.js)
+REGULATOR_SIGNER_ADDRESS = "0x976EA74026E726554dB657fA54763abd0C3a0aa9"
+REGULATOR_SIGNER_KEY     = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
 
 _ARTIFACT = Path(__file__).resolve().parent.parent / \
     "ethereum/artifacts/contracts/CarbonCredit.sol/CarbonCredit.json"
@@ -43,6 +53,102 @@ _HIGH_RISK_TYPES = {
     "Fossil fuel replacement", "Solar", "Landfill Gas", "REDD+",
 }
 _PEER_AVG_TONNES = 50_000
+
+# ── ecrecover endorsement signing ────────────────────────────────────────────
+def _sign_endorsement(credit_id: str, tonnes: int, owner: str, private_key: str) -> bytes:
+    """
+    Sign the endorsement hash for a credit mint.
+    Mirrors Solidity: endorsementHash = toEthSignedMessageHash(keccak256(creditId ++ tonnes ++ owner))
+    abi.encodePacked(string, uint256, address) = UTF-8 bytes + 32-byte BE int + 20-byte address.
+    """
+    packed   = credit_id.encode("utf-8") + tonnes.to_bytes(32, "big") + bytes.fromhex(owner[2:])
+    msg_hash = Web3.keccak(packed)
+    # encode_defunct applies "\x19Ethereum Signed Message:\n32" prefix (EIP-191)
+    message  = encode_defunct(primitive=bytes(msg_hash))
+    signed   = Account.sign_message(message, private_key=private_key)
+    return bytes(signed.signature)
+
+
+# ── Proof-of-Work ─────────────────────────────────────────────────────────────
+# Must match Solidity: keccak256(abi.encodePacked(creditId, nonce)) <= POW_DIFFICULTY
+# POW_DIFFICULTY = type(uint256).max >> 8  →  top 8 bits must be 0  →  1/256 chance per try
+_POW_DIFFICULTY = (2**256 - 1) >> 8
+
+
+def mine_pow_nonce(credit_id: str) -> int:
+    """
+    Find a nonce n such that keccak256(creditId_bytes ++ nonce_bytes32) <= POW_DIFFICULTY.
+    abi.encodePacked(string, uint256) = raw UTF-8 bytes + 32-byte big-endian integer.
+    Expected iterations ≈ 256.
+    """
+    nonce = 0
+    while True:
+        packed = credit_id.encode("utf-8") + nonce.to_bytes(32, "big")
+        h = int(Web3.keccak(packed).hex(), 16)
+        if h <= _POW_DIFFICULTY:
+            return nonce
+        nonce += 1
+
+
+# ── Merkle Tree helpers ───────────────────────────────────────────────────────
+# Must exactly mirror the Solidity _computeMerkleRoot logic (sorted-pair hashing).
+
+def _credit_leaf(credit_id: str, tonnes: int, owner: str, ai_risk_score_int: int) -> bytes:
+    """
+    keccak256(abi.encodePacked(creditId, tonnes, owner, aiRiskScore))
+    = keccak256( utf8(creditId) ++ uint256_be(tonnes) ++ address_bytes(owner) ++ uint256_be(score) )
+    """
+    packed = (
+        credit_id.encode("utf-8")
+        + tonnes.to_bytes(32, "big")
+        + bytes.fromhex(owner[2:])          # 20-byte address (strip 0x)
+        + ai_risk_score_int.to_bytes(32, "big")
+    )
+    return bytes(Web3.keccak(packed))
+
+
+def _next_power_of_2(n: int) -> int:
+    if n <= 1:
+        return 1
+    result = 1
+    while result < n:
+        result <<= 1
+    return result
+
+
+def _build_merkle_proof(all_leaves: list[bytes], target_index: int) -> tuple[bytes, list[bytes]]:
+    """
+    Returns (merkle_root, proof) for the leaf at target_index.
+    Sibling pairs are sorted before hashing to match Solidity.
+    """
+    n = len(all_leaves)
+    if n == 0:
+        return bytes(32), []
+    if n == 1:
+        return all_leaves[0], []
+
+    size = _next_power_of_2(n)
+    nodes = list(all_leaves) + [bytes(32)] * (size - n)
+
+    proof: list[bytes] = []
+    idx = target_index
+    current_size = size
+
+    while current_size > 1:
+        sibling = idx ^ 1                        # sibling index
+        proof.append(nodes[sibling])
+
+        half = current_size >> 1
+        new_nodes: list[bytes] = []
+        for i in range(half):
+            a, b = nodes[2 * i], nodes[2 * i + 1]
+            combined = (a + b) if a < b else (b + a)
+            new_nodes.append(bytes(Web3.keccak(combined)))
+        nodes = new_nodes
+        current_size = half
+        idx >>= 1
+
+    return nodes[0], proof
 
 
 def _connect():
@@ -145,6 +251,10 @@ def issue_credit(req: MintRequest):
     credit_id      = f"CRED-{uuid.uuid4().hex[:8].upper()}"
 
     try:
+        pow_nonce = mine_pow_nonce(credit_id)
+        owner_checksum = Web3.to_checksum_address(owner_address)
+        dev_sig = _sign_endorsement(credit_id, req.tonnes, owner_checksum, DEVELOPER_SIGNER_KEY)
+        reg_sig = _sign_endorsement(credit_id, req.tonnes, owner_checksum, REGULATOR_SIGNER_KEY)
         nonce  = w3.eth.get_transaction_count(DEPLOYER_ADDRESS)
         tx     = contract.functions.issueCredit(
             credit_id,
@@ -152,11 +262,14 @@ def issue_credit(req: MintRequest):
             req.developer_id,
             req.regulator_id,
             risk_score_int,
-            Web3.to_checksum_address(owner_address),
+            owner_checksum,
+            pow_nonce,
+            dev_sig,
+            reg_sig,
         ).build_transaction({
             "from":     DEPLOYER_ADDRESS,
             "nonce":    nonce,
-            "gas":      300_000,
+            "gas":      800_000,
             "gasPrice": w3.eth.gas_price,
         })
         signed  = w3.eth.account.sign_transaction(tx, private_key=DEPLOYER_KEY)
@@ -168,17 +281,30 @@ def issue_credit(req: MintRequest):
     if receipt.status != 1:
         raise HTTPException(status_code=500, detail="Transaction reverted on-chain.")
 
+    # Parse tokenId from the CreditIssued event
+    token_id = None
+    try:
+        logs = contract.events.CreditIssued().process_receipt(receipt)
+        if logs:
+            token_id = logs[0].args.tokenId
+    except Exception:
+        pass
+
     return {
         "credit_id":            credit_id,
         "ai_risk_score":        risk_score,
         "ai_risk_score_scaled": risk_score_int,
         "computed_features":    features,
         "owner_id":             req.owner_id,
-        "owner_address":        owner_address,
+        "owner_address":        owner_checksum,
         "tonnes":               req.tonnes,
         "tx_hash":              tx_hash.hex(),
         "block_number":         receipt.blockNumber,
         "contract_address":     CONTRACT_ADDRESS,
+        "pow_nonce":            pow_nonce,
+        "token_id":             token_id,
+        "developer_signer":     DEVELOPER_SIGNER_ADDRESS,
+        "regulator_signer":     REGULATOR_SIGNER_ADDRESS,
         "status":               "minted",
     }
 
@@ -190,7 +316,7 @@ def get_credit(credit_id: str):
     try:
         if not contract.functions.doesCreditExist(credit_id).call():
             raise HTTPException(status_code=404, detail=f"Credit '{credit_id}' not found.")
-        tonnes, dev_id, reg_id, risk_int, owner, is_retired = \
+        tonnes, dev_id, reg_id, risk_int, owner, is_retired, token_id = \
             contract.functions.getCredit(credit_id).call()
     except HTTPException:
         raise
@@ -209,20 +335,27 @@ def get_credit(credit_id: str):
         "owner":                owner,
         "owner_name":           addr_to_name.get(owner, "Unknown"),
         "is_retired":           is_retired,
+        "token_id":             token_id,
     }
 
 
 @app.get("/chain/stats")
 def get_chain_stats():
     w3, contract = get_contract()
-    registrar = contract.functions.registrar().call()
+    admin         = contract.functions.admin().call()
+    merkle_root   = contract.functions.merkleRoot().call()
+    total_credits = contract.functions.totalCredits().call()
     return {
-        "network":          "Hardhat Local",
-        "chain_id":         w3.eth.chain_id,
-        "latest_block":     w3.eth.block_number,
-        "contract_address": CONTRACT_ADDRESS,
-        "registrar":        registrar,
-        "node_url":         HARDHAT_RPC,
+        "network":           "Hardhat Local",
+        "chain_id":          w3.eth.chain_id,
+        "latest_block":      w3.eth.block_number,
+        "contract_address":  CONTRACT_ADDRESS,
+        "admin":             admin,
+        "developer_signer":  DEVELOPER_SIGNER_ADDRESS,
+        "regulator_signer":  REGULATOR_SIGNER_ADDRESS,
+        "node_url":          HARDHAT_RPC,
+        "merkle_root":       "0x" + merkle_root.hex(),
+        "total_credits":     total_credits,
     }
 
 
@@ -282,3 +415,60 @@ def get_chain_events():
 
     events.sort(key=lambda x: x["block"], reverse=True)
     return {"events": events, "total": len(events)}
+
+
+@app.get("/credits/{credit_id}/proof")
+def get_credit_proof(credit_id: str):
+    """
+    Return the Merkle inclusion proof for a credit.
+
+    The proof is an ordered list of sibling hashes from the leaf up to the root.
+    Pass it to the contract's verifyCredit(proof, leaf) to confirm inclusion.
+    """
+    _, contract = get_contract()
+
+    if not contract.functions.doesCreditExist(credit_id).call():
+        raise HTTPException(status_code=404, detail=f"Credit '{credit_id}' not found.")
+
+    # Rebuild leaf list in insertion order from on-chain events
+    try:
+        issued_events = contract.events.CreditIssued.get_logs(from_block=0)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read events: {e}")
+
+    issued_events = sorted(issued_events, key=lambda ev: (ev.blockNumber, ev.logIndex))
+
+    all_leaves: list[bytes] = []
+    target_index: int | None = None
+
+    for i, ev in enumerate(issued_events):
+        leaf = _credit_leaf(
+            ev.args.creditId,
+            ev.args.tonnes,
+            ev.args.owner,
+            ev.args.aiRiskScore,
+        )
+        all_leaves.append(leaf)
+        if ev.args.creditId == credit_id:
+            target_index = i
+
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="Credit not found in event logs.")
+
+    root, proof = _build_merkle_proof(all_leaves, target_index)
+    leaf_hex    = "0x" + all_leaves[target_index].hex()
+    root_hex    = "0x" + root.hex()
+
+    return {
+        "credit_id":      credit_id,
+        "leaf_hash":      leaf_hex,
+        "leaf_index":     target_index,
+        "merkle_root":    root_hex,
+        "proof":          ["0x" + p.hex() for p in proof],
+        "proof_length":   len(proof),
+        "total_credits":  len(all_leaves),
+        "how_to_verify":  (
+            f"Call contract.verifyCredit({['0x'+p.hex() for p in proof]}, '{leaf_hex}') "
+            f"— should return true"
+        ),
+    }
