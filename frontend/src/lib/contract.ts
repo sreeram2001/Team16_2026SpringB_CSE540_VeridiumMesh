@@ -1,5 +1,15 @@
-import { JsonRpcProvider, BrowserProvider, Wallet, Contract } from "ethers";
+import { JsonRpcProvider, BrowserProvider, Wallet, Contract, solidityPackedKeccak256, getBytes } from "ethers";
 import type { Eip1193Provider } from "ethers";
+
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+      on: (event: string, handler: (...args: unknown[]) => void) => void;
+      removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
+    };
+  }
+}
 
 export const CONTRACT_ADDRESS =
   process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? "0x5FbDB2315678afecb367f032d93F642f64180aa3";
@@ -37,104 +47,107 @@ const ABI = [
 
 export const REGISTRAR_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
+// Public address registry — names and roles only, no private keys in the browser.
+export const PARTICIPANT_REGISTRY: Record<string, { name: string; role: string }> = {
+  "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": { name: "GreenBuild Solutions", role: "Developer" },
+  "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": { name: "EcoForest Initiative", role: "Developer" },
+  "0x90F79bf6EB2c4f870365E785982E1f101E93b906": { name: "SolarVerde Projects", role: "Developer" },
+  "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65": { name: "CarbonMarket Exchange", role: "Buyer" },
+  "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc": { name: "BlueSky Offset Fund", role: "Buyer" },
+  "0x976EA74026E726554dB657fA54763abd0C3a0aa9": { name: "EPA Registry", role: "Regulator" },
+};
+
+// Keep HARDHAT_WALLETS for backward compatibility (tests, etc.)
 export const HARDHAT_WALLETS: Record<string, { name: string; role: string; privateKey: string }> = {
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {
-    name: "VeridiumAI",
-    role: "Registrar",
+    name: "VeridiumAI", role: "Registrar",
     privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
   },
   "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": {
-    name: "GreenBuild Solutions",
-    role: "Developer",
+    name: "GreenBuild Solutions", role: "Developer",
     privateKey: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
   },
   "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": {
-    name: "EcoForest Initiative",
-    role: "Developer",
+    name: "EcoForest Initiative", role: "Developer",
     privateKey: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
   },
   "0x90F79bf6EB2c4f870365E785982E1f101E93b906": {
-    name: "SolarVerde Projects",
-    role: "Developer",
+    name: "SolarVerde Projects", role: "Developer",
     privateKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6",
   },
   "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65": {
-    name: "CarbonMarket Exchange",
-    role: "Buyer",
+    name: "CarbonMarket Exchange", role: "Buyer",
     privateKey: "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926b",
   },
   "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc": {
-    name: "BlueSky Offset Fund",
-    role: "Buyer",
+    name: "BlueSky Offset Fund", role: "Buyer",
     privateKey: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba",
   },
   "0x976EA74026E726554dB657fA54763abd0C3a0aa9": {
-    name: "EPA Registry",
-    role: "Regulator",
+    name: "EPA Registry", role: "Regulator",
     privateKey: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
   },
 };
 
-// ── Hardhat wallet helpers (existing – use pre-loaded private keys) ────────────
+// ── MetaMask helpers ──────────────────────────────────────────────────────────
 
-function getWallet(signerAddress: string): Wallet {
-  const entry = HARDHAT_WALLETS[signerAddress];
-  if (!entry) throw new Error(`No wallet found for ${signerAddress}`);
-  const provider = new JsonRpcProvider(RPC_URL);
-  return new Wallet(entry.privateKey, provider);
+async function getSigner() {
+  if (!window.ethereum) throw new Error("MetaMask not found. Install it from metamask.io");
+  const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
+  await provider.send("eth_requestAccounts", []);
+  return provider.getSigner();
 }
 
-export async function transferCreditOnChain(creditId: string, to: string, signerAddress: string): Promise<string> {
-  const wallet = getWallet(signerAddress);
-  const contract = new Contract(CONTRACT_ADDRESS, ABI, wallet);
-  const tx = await contract.transferCredit(creditId, to);
-  await tx.wait();
-  return tx.hash as string;
+export async function connectWallet(): Promise<{ address: string; name: string; role: string }> {
+  const signer = await getSigner();
+  const address = await signer.getAddress();
+  const entry = PARTICIPANT_REGISTRY[address];
+  if (!entry) throw new Error(`${address.slice(0, 10)}… is not a registered participant in this network.`);
+  return { address, ...entry };
 }
 
-export async function retireCreditOnChain(creditId: string, signerAddress: string): Promise<string> {
-  const wallet = getWallet(signerAddress);
-  const contract = new Contract(CONTRACT_ADDRESS, ABI, wallet);
-  const tx = await contract.retireCredit(creditId);
-  await tx.wait();
-  return tx.hash as string;
+export async function signSubmission(projectId: string, projectType: string, tonnes: number): Promise<string> {
+  const signer = await getSigner();
+  const hash = solidityPackedKeccak256(["string", "string", "uint256"], [projectId, projectType, BigInt(tonnes)]);
+  return signer.signMessage(getBytes(hash));
 }
 
-// ── MetaMask helpers (real browser wallet signing) ────────────────────────────
+export async function signEndorsement(creditId: string, developerId: string, tonnes: number): Promise<string> {
+  const signer = await getSigner();
+  const hash = solidityPackedKeccak256(["string", "string", "uint256"], [creditId, developerId, BigInt(tonnes)]);
+  return signer.signMessage(getBytes(hash));
+}
 
 export function isMetaMaskAvailable(): boolean {
   return typeof window !== "undefined" && !!window.ethereum;
 }
 
 export async function getMetaMaskAddress(): Promise<string> {
-  if (!isMetaMaskAvailable()) throw new Error("MetaMask is not installed.");
-  const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-  await provider.send("eth_requestAccounts", []);
-  const signer = await provider.getSigner();
+  const signer = await getSigner();
   return signer.address;
 }
 
-export async function transferCreditWithMetaMask(creditId: string, to: string): Promise<string> {
-  if (!isMetaMaskAvailable()) throw new Error("MetaMask is not installed.");
-  const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-  await provider.send("eth_requestAccounts", []);
-  const signer = await provider.getSigner();
+// ── MetaMask-first transfer & retire ──────────────────────────────────────────
+
+export async function transferCreditOnChain(creditId: string, to: string): Promise<string> {
+  const signer = await getSigner();
   const contract = new Contract(CONTRACT_ADDRESS, ABI, signer);
   const tx = await contract.transferCredit(creditId, to);
   await tx.wait();
   return tx.hash as string;
 }
 
-export async function retireCreditWithMetaMask(creditId: string): Promise<string> {
-  if (!isMetaMaskAvailable()) throw new Error("MetaMask is not installed.");
-  const provider = new BrowserProvider(window.ethereum as Eip1193Provider);
-  await provider.send("eth_requestAccounts", []);
-  const signer = await provider.getSigner();
+export async function retireCreditOnChain(creditId: string): Promise<string> {
+  const signer = await getSigner();
   const contract = new Contract(CONTRACT_ADDRESS, ABI, signer);
   const tx = await contract.retireCredit(creditId);
   await tx.wait();
   return tx.hash as string;
 }
+
+// Legacy aliases for backward compatibility
+export const transferCreditWithMetaMask = transferCreditOnChain;
+export const retireCreditWithMetaMask = retireCreditOnChain;
 
 // ── Merkle Tree helpers (read-only) ──────────────────────────────────────────
 

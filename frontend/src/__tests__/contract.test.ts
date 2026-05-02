@@ -1,9 +1,9 @@
 /**
  * Tests for lib/contract.ts — pure utility functions only (no live RPC).
- * The ethers Wallet / Contract / JsonRpcProvider are mocked.
+ * The ethers BrowserProvider / Contract are mocked for MetaMask-based signing.
  */
 
-import { CONTRACT_ADDRESS, HARDHAT_WALLETS, REGISTRAR_ADDRESS } from "@/lib/contract";
+import { CONTRACT_ADDRESS, HARDHAT_WALLETS, PARTICIPANT_REGISTRY, REGISTRAR_ADDRESS } from "@/lib/contract";
 
 // ── Static constant tests (no mocking needed) ─────────────────────────────────
 
@@ -43,6 +43,29 @@ describe("HARDHAT_WALLETS", () => {
   });
 });
 
+describe("PARTICIPANT_REGISTRY", () => {
+  it("contains at least 6 participants", () => {
+    expect(Object.keys(PARTICIPANT_REGISTRY).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("every entry has name and role (no private keys)", () => {
+    for (const [addr, entry] of Object.entries(PARTICIPANT_REGISTRY)) {
+      expect(typeof entry.name).toBe("string");
+      expect(typeof entry.role).toBe("string");
+      expect(addr).toMatch(/^0x[0-9a-fA-F]{40}$/);
+      // Ensure no privateKey field leaked into the public registry
+      expect((entry as Record<string, unknown>)["privateKey"]).toBeUndefined();
+    }
+  });
+
+  it("includes Developer, Buyer, and Regulator roles", () => {
+    const roles = Object.values(PARTICIPANT_REGISTRY).map((p) => p.role);
+    expect(roles).toContain("Developer");
+    expect(roles).toContain("Buyer");
+    expect(roles).toContain("Regulator");
+  });
+});
+
 describe("REGISTRAR_ADDRESS", () => {
   it("is a valid Ethereum address", () => {
     expect(REGISTRAR_ADDRESS).toMatch(/^0x[0-9a-fA-F]{40}$/);
@@ -63,21 +86,39 @@ describe("CONTRACT_ADDRESS", () => {
   });
 });
 
-// ── transferCreditOnChain / retireCreditOnChain (mocked ethers) ───────────────
+// ── transferCreditOnChain / retireCreditOnChain (mocked ethers + MetaMask) ────
 
-jest.mock("ethers", () => {
-  const mockWait = jest.fn().mockResolvedValue({});
-  const mockTx = { hash: "0xMOCKHASH", wait: mockWait };
-  const mockContract = {
-    transferCredit: jest.fn().mockResolvedValue(mockTx),
-    retireCredit: jest.fn().mockResolvedValue(mockTx),
-  };
-  return {
-    JsonRpcProvider: jest.fn(),
-    Wallet: jest.fn().mockImplementation(() => ({})),
-    Contract: jest.fn().mockImplementation(() => mockContract),
-  };
+const mockWait = jest.fn().mockResolvedValue({});
+const mockTx = { hash: "0xMOCKHASH", wait: mockWait };
+const mockContract = {
+  transferCredit: jest.fn().mockResolvedValue(mockTx),
+  retireCredit: jest.fn().mockResolvedValue(mockTx),
+};
+const mockSigner = { getAddress: jest.fn().mockResolvedValue("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266") };
+const mockProvider = {
+  send: jest.fn().mockResolvedValue([]),
+  getSigner: jest.fn().mockResolvedValue(mockSigner),
+};
+
+// Mock window.ethereum for MetaMask
+Object.defineProperty(global, "window", {
+  value: {
+    ethereum: {
+      request: jest.fn(),
+      on: jest.fn(),
+    },
+  },
+  writable: true,
 });
+
+jest.mock("ethers", () => ({
+  JsonRpcProvider: jest.fn(),
+  BrowserProvider: jest.fn().mockImplementation(() => mockProvider),
+  Wallet: jest.fn().mockImplementation(() => ({})),
+  Contract: jest.fn().mockImplementation(() => mockContract),
+  solidityPackedKeccak256: jest.fn().mockReturnValue("0xMOCKHASH"),
+  getBytes: jest.fn().mockReturnValue(new Uint8Array(32)),
+}));
 
 import { transferCreditOnChain, retireCreditOnChain } from "@/lib/contract";
 import { Contract } from "ethers";
@@ -87,7 +128,6 @@ describe("transferCreditOnChain", () => {
     const hash = await transferCreditOnChain(
       "CRED-001",
       "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     );
     expect(hash).toBe("0xMOCKHASH");
   });
@@ -96,7 +136,6 @@ describe("transferCreditOnChain", () => {
     await transferCreditOnChain(
       "CRED-XYZ",
       "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
     );
     const contractInstance = (Contract as jest.Mock).mock.results[0].value;
     expect(contractInstance.transferCredit).toHaveBeenCalledWith(
@@ -104,35 +143,17 @@ describe("transferCreditOnChain", () => {
       "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
     );
   });
-
-  it("throws when address is not in HARDHAT_WALLETS", async () => {
-    await expect(
-      transferCreditOnChain("CRED-001", "0xRecipient", "0xUNKNOWN")
-    ).rejects.toThrow(/No wallet found/);
-  });
 });
 
 describe("retireCreditOnChain", () => {
   it("returns the tx hash on success", async () => {
-    const hash = await retireCreditOnChain(
-      "CRED-001",
-      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-    );
+    const hash = await retireCreditOnChain("CRED-001");
     expect(hash).toBe("0xMOCKHASH");
   });
 
   it("calls contract.retireCredit with correct args", async () => {
-    await retireCreditOnChain(
-      "CRED-RETIRE",
-      "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
-    );
+    await retireCreditOnChain("CRED-RETIRE");
     const contractInstance = (Contract as jest.Mock).mock.results[0].value;
     expect(contractInstance.retireCredit).toHaveBeenCalledWith("CRED-RETIRE");
-  });
-
-  it("throws when address is not in HARDHAT_WALLETS", async () => {
-    await expect(retireCreditOnChain("CRED-001", "0xUNKNOWN")).rejects.toThrow(
-      /No wallet found/
-    );
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 
 type WalletSession = {
   address: string;
@@ -18,6 +18,20 @@ const WalletContext = createContext<WalletContextType | null>(null);
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<WalletSession | null>(null);
+
+  useEffect(() => {
+    const eth = (window as any).ethereum;
+    if (!eth) return;
+
+    function handleAccountsChanged(accounts: string[]) {
+      if (accounts.length === 0 || accounts[0].toLowerCase() !== wallet?.address.toLowerCase()) {
+        setWallet(null);
+      }
+    }
+
+    eth.on("accountsChanged", handleAccountsChanged);
+    return () => eth.removeListener?.("accountsChanged", handleAccountsChanged);
+  }, [wallet]);
 
   return (
     <WalletContext.Provider value={{

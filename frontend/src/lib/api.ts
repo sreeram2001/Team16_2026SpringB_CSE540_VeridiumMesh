@@ -29,6 +29,7 @@ export type MintPayload = {
   owner_id: string;
   developer_id?: string;
   regulator_id?: string;
+  developer_signature?: string;
   r_ratio?: number;
   m_flag?: number;
   t_flag?: number;
@@ -89,35 +90,35 @@ export type MerkleProofResponse = {
 
 export type ChainEvent =
   | {
-      type: "issued";
-      block: number;
-      tx_hash: string;
-      credit_id: string;
-      owner: string;
-      owner_name: string;
-      tonnes: number;
-      ai_risk_score: number;
-      developer_id: string;
-      regulator_id: string;
-    }
+    type: "issued";
+    block: number;
+    tx_hash: string;
+    credit_id: string;
+    owner: string;
+    owner_name: string;
+    tonnes: number;
+    ai_risk_score: number;
+    developer_id: string;
+    regulator_id: string;
+  }
   | {
-      type: "transferred";
-      block: number;
-      tx_hash: string;
-      credit_id: string;
-      from_address: string;
-      from_name: string;
-      to_address: string;
-      to_name: string;
-    }
+    type: "transferred";
+    block: number;
+    tx_hash: string;
+    credit_id: string;
+    from_address: string;
+    from_name: string;
+    to_address: string;
+    to_name: string;
+  }
   | {
-      type: "retired";
-      block: number;
-      tx_hash: string;
-      credit_id: string;
-      owner: string;
-      owner_name: string;
-    };
+    type: "retired";
+    block: number;
+    tx_hash: string;
+    credit_id: string;
+    owner: string;
+    owner_name: string;
+  };
 
 export type EventsResponse = {
   events: ChainEvent[];
@@ -151,4 +152,45 @@ export function fetchStakeholders() {
 
 export function fetchCreditProof(creditId: string) {
   return apiRequest<MerkleProofResponse>(`/credits/${encodeURIComponent(creditId)}/proof`);
+}
+
+// ── Pending / Regulator Approval types ────────────────────────────────────────
+
+export type PendingCredit = {
+  pending_id: string;
+  credit_id: string;
+  project_id: string;
+  project_type: string;
+  tonnes: number;
+  vintage_year: number;
+  owner_id: string;
+  developer_id: string;
+  regulator_id: string;
+  risk_score: number;
+  features: ComputedFeatures;
+  status: "pending" | "approved";
+  submitted_at: string;
+};
+
+export type PendingResponse = {
+  pending_id: string;
+  credit_id: string;
+  ai_risk_score: number;
+  status: string;
+  message: string;
+};
+
+export function submitPendingCredit(payload: MintPayload) {
+  return apiRequest<PendingResponse>("/credits/pending", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function fetchPendingCredits() {
+  return apiRequest<PendingCredit[]>("/credits/pending");
+}
+
+export function approveCredit(pendingId: string, regulatorAddress: string, signature: string) {
+  return apiRequest<MintResponse>(`/credits/approve/${pendingId}`, {
+    method: "POST",
+    body: JSON.stringify({ regulator_address: regulatorAddress, signature }),
+  });
 }

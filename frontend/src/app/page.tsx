@@ -28,7 +28,7 @@ export default function Home() {
   const [stats, setStats] = useState<ChainStatsResponse | null>(null);
 
   useEffect(() => {
-    fetchChainStats().then(setStats).catch(() => {});
+    fetchChainStats().then(setStats).catch(() => { });
   }, []);
 
   // 3-D tilt card
@@ -74,6 +74,9 @@ export default function Home() {
             </Link>
             <Link href="/explorer" className="transition-colors hover:text-foreground">
               Explorer
+            </Link>
+            <Link href="/regulator" className="transition-colors hover:text-foreground">
+              Regulator
             </Link>
             <Link
               href="https://github.com"

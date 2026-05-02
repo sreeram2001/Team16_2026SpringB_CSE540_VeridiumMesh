@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, AlertTriangle, CheckCircle2, FlaskConical,
-  Info, Leaf, ArrowRightLeft, Flame, Wallet, LogOut, Shield,
+  Info, Leaf, ArrowRightLeft, Flame, Wallet, LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,12 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useRouter } from "next/navigation";
-import { issueCredit, fetchStakeholders, fetchEvents, type MintPayload, type MintResponse, type Stakeholder, type ChainEvent } from "@/lib/api";
+import { submitPendingCredit, type MintPayload, type PendingResponse } from "@/lib/api";
 import {
-  transferCreditOnChain, retireCreditOnChain,
-  transferCreditWithMetaMask, retireCreditWithMetaMask,
-  isMetaMaskAvailable, getMetaMaskAddress,
-  HARDHAT_WALLETS, REGISTRAR_ADDRESS,
+  transferCreditOnChain, retireCreditOnChain, signSubmission,
+  connectWallet as connectMetaMask, PARTICIPANT_REGISTRY, REGISTRAR_ADDRESS,
 } from "@/lib/contract";
 import { useWallet } from "@/lib/WalletContext";
 
@@ -32,136 +30,97 @@ function sanitizeInt(v: string) {
   return v.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
 }
 
-function computeOwnedCredits(events: ChainEvent[], address: string): string[] {
-  const ownership = new Map<string, string>();
-  for (const ev of events) {
-    if (ev.type === "issued") {
-      ownership.set(ev.credit_id, ev.owner);
-    } else if (ev.type === "transferred") {
-      ownership.set(ev.credit_id, ev.to_address);
-    } else if (ev.type === "retired") {
-      ownership.delete(ev.credit_id);
-    }
-  }
-  return Array.from(ownership.entries())
-    .filter(([, owner]) => owner.toLowerCase() === address.toLowerCase())
-    .map(([creditId]) => creditId);
-}
-
 type Banner = { type: "ok" | "err"; text: string };
 
 type MintFormState = {
-  project_id: string; project_type: string; tonnes: string;
-  vintage_year: string; owner_id: string; developer_id: string; regulator_id: string;
+  project_id: string;
+  project_type: string;
+  description: string;
+  tonnes: string;
+  vintage_year: string;
 };
 
 const initialMint: MintFormState = {
-  project_id: "VCS-001", project_type: "Cookstoves", tonnes: "5000",
-  vintage_year: "2022", owner_id: "", developer_id: "Dev-Org-Alpha", regulator_id: "GOV-EPA-001",
+  project_id: "VCS-001",
+  project_type: "Cookstoves",
+  description: "",
+  tonnes: "5000",
+  vintage_year: "2022",
 };
 
 export default function DeveloperPage() {
   const router = useRouter();
-  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
-
   const { wallet, connect, disconnect } = useWallet();
-  const [walletSelect, setWalletSelect] = useState("");
 
-  // Mint
-  const [mintForm, setMintForm]     = useState<MintFormState>(initialMint);
-  const [mintResult, setMintResult] = useState<MintResponse | null>(null);
-  const [mintMsg, setMintMsg]       = useState<Banner | null>(null);
+  const [connectError, setConnectError] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
+
+  const [mintForm, setMintForm] = useState<MintFormState>(initialMint);
+  const [mintResult, setMintResult] = useState<PendingResponse | null>(null);
+  const [mintMsg, setMintMsg] = useState<Banner | null>(null);
   const [mintLoading, setMintLoading] = useState(false);
 
-  // Transfer
   const [txCreditId, setTxCreditId] = useState("");
-  const [txTo, setTxTo]             = useState("");
-  const [txMsg, setTxMsg]           = useState<Banner | null>(null);
-  const [txHash, setTxHash]         = useState<string | null>(null);
-  const [txLoading, setTxLoading]   = useState(false);
+  const [txTo, setTxTo] = useState("");
+  const [txMsg, setTxMsg] = useState<Banner | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txLoading, setTxLoading] = useState(false);
 
-  // Retire
   const [retireCreditId, setRetireCreditId] = useState("");
-  const [retireMsg, setRetireMsg]           = useState<Banner | null>(null);
-  const [retireHash, setRetireHash]         = useState<string | null>(null);
-  const [retireLoading, setRetireLoading]   = useState(false);
-
-  // Owned credits
-  const [ownedCredits, setOwnedCredits] = useState<string[]>([]);
-
-  // MetaMask
-  const [useMetaMask, setUseMetaMask]         = useState(false);
-  const [metaMaskAddress, setMetaMaskAddress] = useState<string | null>(null);
-  const [metaMaskLoading, setMetaMaskLoading] = useState(false);
-
-  useEffect(() => {
-    fetchStakeholders().then(setStakeholders).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!wallet) {
-      setOwnedCredits([]);
-      return;
-    }
-    fetchEvents().then(({ events }) => {
-      setOwnedCredits(computeOwnedCredits(events, wallet.address));
-    }).catch(() => {});
-  }, [wallet]);
+  const [retireMsg, setRetireMsg] = useState<Banner | null>(null);
+  const [retireHash, setRetireHash] = useState<string | null>(null);
+  const [retireLoading, setRetireLoading] = useState(false);
 
   const isRegistrar = wallet?.address === REGISTRAR_ADDRESS;
+  const canSubmit = wallet?.role === "Developer";
+  const canTransact = wallet && !isRegistrar;
 
-  function connectWallet() {
-    const entry = HARDHAT_WALLETS[walletSelect];
-    if (!entry) return;
-    connect({ address: walletSelect, name: entry.name, role: entry.role });
+  async function handleConnect() {
+    setConnectError(null);
+    setConnecting(true);
+    try {
+      const participant = await connectMetaMask();
+      connect(participant);
+    } catch (err) {
+      setConnectError(err instanceof Error ? err.message : "Failed to connect wallet.");
+    } finally {
+      setConnecting(false);
+    }
   }
 
-  function disconnectWallet() {
+  function handleDisconnect() {
     disconnect();
-    setWalletSelect("");
-    setMintResult(null);
-    setMintMsg(null);
     setTxMsg(null);
     setTxHash(null);
     setRetireMsg(null);
     setRetireHash(null);
-    setOwnedCredits([]);
-    setUseMetaMask(false);
-    setMetaMaskAddress(null);
-  }
-
-  async function connectMetaMask() {
-    setMetaMaskLoading(true);
-    try {
-      const addr = await getMetaMaskAddress();
-      setMetaMaskAddress(addr);
-    } catch (err) {
-      setTxMsg({ type: "err", text: err instanceof Error ? err.message : "MetaMask connection failed." });
-    } finally {
-      setMetaMaskLoading(false);
-    }
   }
 
   async function onMintSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
     setMintMsg(null);
     setMintLoading(true);
-    const payload: MintPayload = {
-      project_id:   mintForm.project_id.trim(),
-      project_type: mintForm.project_type.trim(),
-      tonnes:       Number(mintForm.tonnes),
-      vintage_year: Number(mintForm.vintage_year),
-      owner_id:     mintForm.owner_id.trim(),
-      developer_id: mintForm.developer_id.trim(),
-      regulator_id: mintForm.regulator_id.trim(),
-    };
     try {
-      const res = await issueCredit(payload);
+      const sig = await signSubmission(
+        mintForm.project_id.trim(),
+        mintForm.project_type.trim(),
+        Number(mintForm.tonnes),
+      );
+      const payload: MintPayload = {
+        project_id: mintForm.project_id.trim(),
+        project_type: mintForm.project_type.trim(),
+        tonnes: Number(mintForm.tonnes),
+        vintage_year: Number(mintForm.vintage_year),
+        owner_id: wallet!.name,
+        developer_id: wallet!.name,
+        regulator_id: "EPA Registry",
+        developer_signature: sig,
+      };
+      const res = await submitPendingCredit(payload);
       setMintResult(res);
-      setMintMsg({ type: "ok", text: `✓ Credit ${res.credit_id} minted in block #${res.block_number}.` });
-      setMintForm(initialMint);
+      setMintMsg({ type: "ok", text: `✓ Submitted. Awaiting regulator approval — Pending ID: ${res.pending_id}` });
     } catch (err) {
-      setMintMsg({ type: "err", text: err instanceof Error ? err.message : "Mint failed." });
+      setMintMsg({ type: "err", text: err instanceof Error ? err.message : "Submission failed." });
     } finally {
       setMintLoading(false);
     }
@@ -169,21 +128,13 @@ export default function DeveloperPage() {
 
   async function onTransfer(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (!wallet) return;
     setTxMsg(null);
     setTxHash(null);
     setTxLoading(true);
     try {
-      const hash = useMetaMask
-        ? await transferCreditWithMetaMask(txCreditId.trim(), txTo)
-        : await transferCreditOnChain(txCreditId.trim(), txTo, wallet.address);
+      const hash = await transferCreditOnChain(txCreditId.trim(), txTo);
       setTxHash(hash);
       setTxMsg({ type: "ok", text: "✓ Credit transferred successfully." });
-      setTxCreditId("");
-      setTxTo("");
-      fetchEvents().then(({ events }) => {
-        setOwnedCredits(computeOwnedCredits(events, wallet.address));
-      }).catch(() => {});
     } catch (err) {
       setTxMsg({ type: "err", text: err instanceof Error ? err.message : "Transfer failed." });
     } finally {
@@ -193,20 +144,13 @@ export default function DeveloperPage() {
 
   async function onRetire(e: { preventDefault(): void }) {
     e.preventDefault();
-    if (!wallet) return;
     setRetireMsg(null);
     setRetireHash(null);
     setRetireLoading(true);
     try {
-      const hash = useMetaMask
-        ? await retireCreditWithMetaMask(retireCreditId.trim())
-        : await retireCreditOnChain(retireCreditId.trim(), wallet.address);
+      const hash = await retireCreditOnChain(retireCreditId.trim());
       setRetireHash(hash);
       setRetireMsg({ type: "ok", text: "✓ Credit permanently retired." });
-      setRetireCreditId("");
-      fetchEvents().then(({ events }) => {
-        setOwnedCredits(computeOwnedCredits(events, wallet.address));
-      }).catch(() => {});
     } catch (err) {
       setRetireMsg({ type: "err", text: err instanceof Error ? err.message : "Retire failed." });
     } finally {
@@ -218,7 +162,6 @@ export default function DeveloperPage() {
     <div className="min-h-screen bg-gradient-to-br from-emerald-100 via-green-50 to-emerald-100/80 px-6 py-10 lg:px-10">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
 
-        {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <Link href="/" className="mb-2 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
@@ -229,33 +172,24 @@ export default function DeveloperPage() {
               Each credit is AI-scored before minting and permanently recorded on Ethereum.
             </p>
           </div>
-          <Button variant="outline" onClick={() => router.push("/explorer")}>
-            Open Explorer
-          </Button>
+          <Button variant="outline" onClick={() => router.push("/explorer")}>Open Explorer</Button>
         </div>
 
-        {/* Wallet connection bar */}
+        {/* Wallet bar */}
         {!wallet ? (
           <Card className="border border-border/70 bg-white shadow-sm">
-            <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-end">
-              <div className="flex-1 space-y-1.5">
-                <Label htmlFor="wallet_select" className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-primary" /> Connect your wallet to transfer or retire credits
-                </Label>
-                <select
-                  id="wallet_select"
-                  value={walletSelect}
-                  onChange={(e) => setWalletSelect(e.target.value)}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="" disabled>Who are you?</option>
-                  {Object.entries(HARDHAT_WALLETS).map(([addr, { name, role }]) => (
-                    <option key={addr} value={addr}>[{role}] {name} — {addr.slice(0, 10)}…</option>
-                  ))}
-                </select>
+            <CardContent className="flex flex-col gap-3 pt-5">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Wallet className="h-4 w-4 text-primary" /> Connect your MetaMask wallet to continue
               </div>
-              <Button onClick={connectWallet} disabled={!walletSelect} className="shrink-0">
-                Connect
+              <p className="text-xs text-muted-foreground">
+                Make sure MetaMask is installed, connected to Hardhat (Chain ID 31337), and your account is a registered participant.
+              </p>
+              {connectError && (
+                <p className="text-xs text-red-600">{connectError}</p>
+              )}
+              <Button onClick={handleConnect} disabled={connecting} className="w-full sm:w-auto">
+                {connecting ? "Connecting…" : "Connect MetaMask"}
               </Button>
             </CardContent>
           </Card>
@@ -266,65 +200,22 @@ export default function DeveloperPage() {
                 <Wallet className="h-4 w-4 text-emerald-700" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-emerald-900">{wallet.name}</p>
+                <p className="text-sm font-semibold text-emerald-900">{wallet.name} <span className="font-normal text-emerald-700">· {wallet.role}</span></p>
                 <p className="font-mono text-xs text-emerald-700">{wallet.address}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {/* MetaMask toggle */}
-              {isMetaMaskAvailable() && (
-                <button
-                  type="button"
-                  onClick={() => { setUseMetaMask((v) => !v); setMetaMaskAddress(null); }}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    useMetaMask
-                      ? "border-orange-300 bg-orange-50 text-orange-700"
-                      : "border-border bg-background text-muted-foreground hover:bg-muted/30"
-                  }`}
-                >
-                  <Shield className="h-3 w-3" />
-                  {useMetaMask ? "MetaMask ON" : "Use MetaMask"}
-                </button>
-              )}
-              <Button variant="ghost" size="sm" onClick={disconnectWallet} className="text-emerald-700 hover:bg-emerald-100">
-                <LogOut className="mr-1.5 h-4 w-4" /> Disconnect
-              </Button>
-            </div>
+            <Button variant="ghost" size="sm" onClick={handleDisconnect} className="text-emerald-700 hover:bg-emerald-100">
+              <LogOut className="mr-1.5 h-4 w-4" /> Disconnect
+            </Button>
           </div>
         )}
 
-        {/* MetaMask banner — shown when MetaMask mode is active */}
-        {wallet && useMetaMask && (
-          <div className={`flex items-center justify-between rounded-xl border px-5 py-3 ${
-            metaMaskAddress ? "border-orange-200 bg-orange-50" : "border-amber-200 bg-amber-50"
-          }`}>
-            <div className="flex items-center gap-3">
-              <Shield className={`h-5 w-5 ${metaMaskAddress ? "text-orange-600" : "text-amber-500"}`} />
-              <div>
-                <p className="text-sm font-semibold">
-                  {metaMaskAddress ? "MetaMask connected — signing with browser wallet" : "MetaMask mode active — connect to sign transactions"}
-                </p>
-                {metaMaskAddress && (
-                  <p className="font-mono text-xs text-orange-700">{metaMaskAddress}</p>
-                )}
-              </div>
-            </div>
-            {!metaMaskAddress && (
-              <Button size="sm" onClick={connectMetaMask} disabled={metaMaskLoading} className="bg-orange-500 hover:bg-orange-600 text-white shrink-0">
-                {metaMaskLoading ? "Connecting…" : "Connect MetaMask"}
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Role gate — shown when not connected */}
         {!wallet && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Connect your wallet above to continue. Registrars can mint credits. Developers and Buyers can transfer and retire.
+            Connect your MetaMask wallet above. Developers can submit credit requests. Buyers can transfer and retire.
           </div>
         )}
 
-        {/* Mint banner */}
         {mintMsg && (
           <div className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm ${mintMsg.type === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
             {mintMsg.type === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
@@ -332,25 +223,37 @@ export default function DeveloperPage() {
           </div>
         )}
 
-        {/* Mint section — Registrar only */}
-        {isRegistrar && <div className="grid gap-6 xl:grid-cols-2">
+        {/* Submit Credit Request — Developers only */}
+        {canSubmit && <div className="grid gap-6 xl:grid-cols-2">
           <Card className="border border-border/70 bg-white shadow-sm">
             <CardHeader className="border-b border-border/50 pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <FlaskConical className="h-5 w-5 text-primary" /> Issue Carbon Credit
+                <FlaskConical className="h-5 w-5 text-primary" /> Submit Credit Request
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-5">
               <form onSubmit={onMintSubmit} className="grid gap-4 md:grid-cols-2">
-                <div className="grid gap-2 md:col-span-2">
+                <div className="grid gap-2">
                   <Label htmlFor="project_id">Project ID</Label>
                   <Input id="project_id" placeholder="VCS-001" value={mintForm.project_id}
                     onChange={(e) => setMintForm((p) => ({ ...p, project_id: e.target.value }))} required />
                 </div>
-                <div className="grid gap-2 md:col-span-2">
+                <div className="grid gap-2">
                   <Label htmlFor="project_type">Project Type</Label>
                   <Input id="project_type" placeholder="e.g. Cookstoves, Wind, REDD+" value={mintForm.project_type}
                     onChange={(e) => setMintForm((p) => ({ ...p, project_type: e.target.value }))} required />
+                </div>
+                <div className="grid gap-2 md:col-span-2">
+                  <Label htmlFor="description">Project Description</Label>
+                  <textarea
+                    id="description"
+                    rows={3}
+                    placeholder="Describe what this project does and how it reduces carbon emissions…"
+                    value={mintForm.description}
+                    onChange={(e) => setMintForm((p) => ({ ...p, description: e.target.value }))}
+                    required
+                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="tonnes">Tonnes of CO₂</Label>
@@ -362,50 +265,28 @@ export default function DeveloperPage() {
                   <Input id="vintage_year" inputMode="numeric" placeholder="e.g. 2022" value={mintForm.vintage_year}
                     onChange={(e) => setMintForm((p) => ({ ...p, vintage_year: sanitizeInt(e.target.value) }))} required />
                 </div>
-                <div className="grid gap-2 md:col-span-2">
-                  <Label htmlFor="owner_id">Owner (Stakeholder)</Label>
-                  <select id="owner_id" required value={mintForm.owner_id}
-                    onChange={(e) => setMintForm((p) => ({ ...p, owner_id: e.target.value }))}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    <option value="" disabled>Select a stakeholder…</option>
-                    {stakeholders.map((s) => (
-                      <option key={s.address} value={s.name}>{s.name} — {s.address.slice(0, 10)}…</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="developer_id">Developer ID (Endorsement)</Label>
-                  <Input id="developer_id" placeholder="e.g. Dev-Org-Alpha" value={mintForm.developer_id}
-                    onChange={(e) => setMintForm((p) => ({ ...p, developer_id: e.target.value }))} required />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="regulator_id">Regulator ID (Gov. Approval)</Label>
-                  <Input id="regulator_id" placeholder="e.g. GOV-EPA-001" value={mintForm.regulator_id}
-                    onChange={(e) => setMintForm((p) => ({ ...p, regulator_id: e.target.value }))} required />
-                </div>
-                <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs text-muted-foreground md:col-span-2">
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                  Risk features are auto-computed by the AI engine. Both Developer and Regulator IDs are required by the Solidity endorsement policy.
-                </div>
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 grid gap-3">
+                  <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-muted-foreground">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                    Submitting as <strong className="mx-1">{wallet?.name}</strong> — MetaMask will ask you to sign this request. Owner and Developer are set from your connected wallet.
+                  </div>
                   <Button type="submit" disabled={mintLoading} className="w-full bg-primary hover:bg-primary/90">
-                    {mintLoading ? "Scoring + Minting…" : "Score & Mint Credit"}
+                    {mintLoading ? "Waiting for MetaMask…" : "Sign & Submit for Approval"}
                   </Button>
                 </div>
               </form>
             </CardContent>
           </Card>
 
-          {/* AI Score result */}
           <Card className="border border-border/70 bg-white shadow-sm">
             <CardHeader className="border-b border-border/50 pb-4">
-              <CardTitle className="text-lg">AI Risk Score &amp; On-Chain Result</CardTitle>
+              <CardTitle className="text-lg">AI Risk Score &amp; Submission Status</CardTitle>
             </CardHeader>
             <CardContent className="pt-5">
               {!mintResult ? (
                 <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
                   <Leaf className="h-12 w-12 text-muted-foreground/30" />
-                  <p className="text-sm">Mint a credit to see the AI risk score and transaction here.</p>
+                  <p className="text-sm">Submit a credit request to see the AI risk score here.</p>
                 </div>
               ) : (
                 <div className="space-y-5">
@@ -421,43 +302,20 @@ export default function DeveloperPage() {
                       </div>
                     );
                   })()}
-                  {mintResult.computed_features && (
-                    <>
-                      <div>
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Auto-Computed ML Features</p>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          {[
-                            { label: "R Ratio",     value: `${mintResult.computed_features.R_ratio.toFixed(2)}×` },
-                            { label: "Vintage Age", value: `${mintResult.computed_features.Vintage_Age} yrs` },
-                            { label: "M Flag", value: mintResult.computed_features.M_flag ? "1 — High-risk type" : "0 — Normal type", warn: !!mintResult.computed_features.M_flag },
-                            { label: "T Flag", value: mintResult.computed_features.T_flag ? "1 — Volume spike"  : "0 — Normal issuance", warn: !!mintResult.computed_features.T_flag },
-                          ].map(({ label, value, warn }) => (
-                            <div key={label} className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
-                              <p className="text-muted-foreground">{label}</p>
-                              <p className={`mt-0.5 font-mono text-base font-semibold ${warn !== undefined ? (warn ? "text-red-600" : "text-emerald-600") : "text-foreground"}`}>{value}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <Separator />
-                    </>
-                  )}
+                  <Separator />
                   <div className="space-y-2 text-sm">
-                    {[
-                      { label: "Credit ID",    value: mintResult.credit_id,                  mono: true },
-                      { label: "Owner",        value: mintResult.owner_id,                   mono: false },
-                      { label: "Tonnes CO₂",   value: mintResult.tonnes.toLocaleString(),    mono: false },
-                      { label: "Block Number", value: `#${mintResult.block_number}`,         mono: true },
-                    ].map(({ label, value, mono }) => (
-                      <div key={label} className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">{label}</span>
-                        <span className={mono ? "font-mono font-medium text-primary" : "font-medium"}>{value}</span>
-                      </div>
-                    ))}
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-muted-foreground">Tx Hash</span>
-                      <span className="break-all font-mono text-xs">{mintResult.tx_hash}</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Pending ID</span>
+                      <span className="font-mono font-medium text-primary">{mintResult.pending_id}</span>
                     </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-muted-foreground">Credit ID (when approved)</span>
+                      <span className="font-mono font-medium">{mintResult.credit_id}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs text-muted-foreground">
+                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    Awaiting EPA Registry approval. The credit mints on-chain only after the Regulator signs.
                   </div>
                 </div>
               )}
@@ -465,145 +323,94 @@ export default function DeveloperPage() {
           </Card>
         </div>}
 
-        {/* Transfer & Retire — stakeholders only */}
-        {wallet && !isRegistrar && <div className="grid gap-6 xl:grid-cols-2">
+        {/* Transfer & Retire */}
+        {canTransact && <div className="grid gap-6 xl:grid-cols-2">
 
-          {/* Transfer */}
-          <Card className={`border border-border/70 bg-white shadow-sm ${!wallet ? "opacity-60" : ""}`}>
-            <CardHeader className="border-b border-border/50 pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <ArrowRightLeft className="h-5 w-5 text-primary" /> Transfer Credit
-                {wallet && (
-                  <Badge className="ml-auto border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-normal">
-                    Signed as {wallet.name.split(" ")[0]}
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-5">
-              {!wallet ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Connect your wallet above to transfer credits.</p>
-              ) : (
-                <form onSubmit={onTransfer} className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="tx_credit_id">Credit ID</Label>
-                    <Input id="tx_credit_id" placeholder="CRED-XXXXXXXX" value={txCreditId}
-                      onChange={(e) => setTxCreditId(e.target.value)} required />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="tx_to">Transfer to</Label>
-                    <select id="tx_to" required value={txTo} onChange={(e) => setTxTo(e.target.value)}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      <option value="" disabled>Select recipient…</option>
-                      {Object.entries(HARDHAT_WALLETS)
-                        .filter(([addr]) => addr !== wallet.address)
-                        .map(([addr, { name, role }]) => (
-                          <option key={addr} value={addr}>[{role}] {name} — {addr.slice(0, 10)}…</option>
-                        ))}
-                    </select>
-                  </div>
-                  <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs text-muted-foreground ${
-                    useMetaMask ? "border-orange-100 bg-orange-50/60" : "border-blue-100 bg-blue-50/60"
-                  }`}>
-                    {useMetaMask ? <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" /> : <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />}
-                    {useMetaMask
-                      ? "Signing with MetaMask browser wallet. Make sure MetaMask is connected to Hardhat Localhost 8545."
-                      : `Signed with ${wallet.name}'s key. The contract will reject this if you are not the current owner.`
-                    }
-                  </div>
-                  <Button type="submit" disabled={txLoading} variant="outline" className="w-full border-primary/40 text-primary hover:bg-primary/5">
-                    {txLoading ? "Signing & Sending…" : "Transfer Credit"}
-                  </Button>
-                  {txMsg && (
-                    <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${txMsg.type === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                      {txMsg.type === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-                      <div>
-                        <p>{txMsg.text}</p>
-                        {txHash && <p className="mt-1 break-all font-mono text-xs opacity-80">{txHash}</p>}
-                      </div>
-                    </div>
-                  )}
-                </form>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Retire */}
-          <Card className={`border border-border/70 bg-white shadow-sm ${!wallet ? "opacity-60" : ""}`}>
-            <CardHeader className="border-b border-border/50 pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Flame className="h-5 w-5 text-orange-500" /> Retire Credit
-                {wallet && (
-                  <Badge className="ml-auto border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-normal">
-                    Signed as {wallet.name.split(" ")[0]}
-                  </Badge>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-5">
-              {!wallet ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">Connect your wallet above to retire credits.</p>
-              ) : (
-                <form onSubmit={onRetire} className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="retire_credit_id">Credit ID</Label>
-                    <Input id="retire_credit_id" placeholder="CRED-XXXXXXXX" value={retireCreditId}
-                      onChange={(e) => setRetireCreditId(e.target.value)} required />
-                  </div>
-                  <div className="flex items-start gap-2 rounded-lg border border-orange-100 bg-orange-50/60 px-3 py-2 text-xs text-muted-foreground">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
-                    Retirement is <strong className="mx-0.5">irreversible</strong>. The credit is permanently burned on-chain.{" "}
-                    {useMetaMask ? "Signing via MetaMask." : `Signed as ${wallet.name}.`}
-                  </div>
-                  <Button type="submit" disabled={retireLoading} variant="outline" className="w-full border-orange-300 text-orange-600 hover:bg-orange-50">
-                    {retireLoading ? "Signing & Sending…" : "Retire Credit"}
-                  </Button>
-                  {retireMsg && (
-                    <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${retireMsg.type === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                      {retireMsg.type === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-                      <div>
-                        <p>{retireMsg.text}</p>
-                        {retireHash && <p className="mt-1 break-all font-mono text-xs opacity-80">{retireHash}</p>}
-                      </div>
-                    </div>
-                  )}
-                </form>
-              )}
-            </CardContent>
-          </Card>
-
-        </div>}
-
-        {/* Your Credits panel — non-registrar only */}
-        {wallet && !isRegistrar && (
           <Card className="border border-border/70 bg-white shadow-sm">
             <CardHeader className="border-b border-border/50 pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Leaf className="h-5 w-5 text-emerald-600" /> Your Credits
+                <ArrowRightLeft className="h-5 w-5 text-primary" /> Transfer Credit
                 <Badge className="ml-auto border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-normal">
-                  {ownedCredits.length} owned
+                  Signed as {wallet?.name.split(" ")[0]}
                 </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-5">
-              {ownedCredits.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">No active credits owned by this wallet.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {ownedCredits.map((creditId) => (
-                    <li key={creditId} className="flex items-center justify-between rounded-lg border border-border/60 px-4 py-2">
-                      <span className="font-mono text-sm font-medium text-primary">{creditId}</span>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setTxCreditId(creditId)}>Transfer</Button>
-                        <Button size="sm" variant="outline" onClick={() => setRetireCreditId(creditId)}>Retire</Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <form onSubmit={onTransfer} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="tx_credit_id">Credit ID</Label>
+                  <Input id="tx_credit_id" placeholder="CRED-XXXXXXXX" value={txCreditId}
+                    onChange={(e) => setTxCreditId(e.target.value)} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="tx_to">Transfer to</Label>
+                  <select id="tx_to" required value={txTo} onChange={(e) => setTxTo(e.target.value)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <option value="" disabled>Select recipient…</option>
+                    {Object.entries(PARTICIPANT_REGISTRY)
+                      .filter(([addr]) => addr !== wallet?.address)
+                      .map(([addr, { name, role }]) => (
+                        <option key={addr} value={addr}>[{role}] {name} — {addr.slice(0, 10)}…</option>
+                      ))}
+                  </select>
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-muted-foreground">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                  MetaMask will ask you to sign. The contract rejects this if you are not the current owner.
+                </div>
+                <Button type="submit" disabled={txLoading} variant="outline" className="w-full border-primary/40 text-primary hover:bg-primary/5">
+                  {txLoading ? "Waiting for MetaMask…" : "Transfer Credit"}
+                </Button>
+                {txMsg && (
+                  <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${txMsg.type === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                    {txMsg.type === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                    <div>
+                      <p>{txMsg.text}</p>
+                      {txHash && <p className="mt-1 break-all font-mono text-xs opacity-80">{txHash}</p>}
+                    </div>
+                  </div>
+                )}
+              </form>
             </CardContent>
           </Card>
-        )}
+
+          <Card className="border border-border/70 bg-white shadow-sm">
+            <CardHeader className="border-b border-border/50 pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Flame className="h-5 w-5 text-orange-500" /> Retire Credit
+                <Badge className="ml-auto border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-normal">
+                  Signed as {wallet?.name.split(" ")[0]}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-5">
+              <form onSubmit={onRetire} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="retire_credit_id">Credit ID</Label>
+                  <Input id="retire_credit_id" placeholder="CRED-XXXXXXXX" value={retireCreditId}
+                    onChange={(e) => setRetireCreditId(e.target.value)} required />
+                </div>
+                <div className="flex items-start gap-2 rounded-lg border border-orange-100 bg-orange-50/60 px-3 py-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
+                  Retirement is <strong className="mx-0.5">irreversible</strong>. MetaMask will ask you to sign. The credit is permanently burned on-chain.
+                </div>
+                <Button type="submit" disabled={retireLoading} variant="outline" className="w-full border-orange-300 text-orange-600 hover:bg-orange-50">
+                  {retireLoading ? "Waiting for MetaMask…" : "Retire Credit"}
+                </Button>
+                {retireMsg && (
+                  <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${retireMsg.type === "ok" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                    {retireMsg.type === "ok" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
+                    <div>
+                      <p>{retireMsg.text}</p>
+                      {retireHash && <p className="mt-1 break-all font-mono text-xs opacity-80">{retireHash}</p>}
+                    </div>
+                  </div>
+                )}
+              </form>
+            </CardContent>
+          </Card>
+
+        </div>}
 
       </div>
     </div>
