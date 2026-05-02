@@ -1,7 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
-// ── Proof-of-Work helper ──────────────────────────────────────────────────────
 const POW_DIFFICULTY = (2n ** 256n - 1n) >> 8n;
 
 function mineNonce(creditId) {
@@ -15,7 +14,6 @@ function mineNonce(creditId) {
   }
 }
 
-// ── Merkle leaf helper ────────────────────────────────────────────────────────
 function creditLeaf(creditId, tonnes, ownerAddr, aiRiskScore) {
   return ethers.solidityPackedKeccak256(
     ["string", "uint256", "address", "uint256"],
@@ -23,8 +21,6 @@ function creditLeaf(creditId, tonnes, ownerAddr, aiRiskScore) {
   );
 }
 
-// ── ecrecover endorsement signing helper ──────────────────────────────────────
-// Mirrors Solidity: endorsementHash = toEthSignedMessageHash(keccak256(creditId ++ tonnes ++ owner))
 async function signEndorsement(creditId, tonnes, ownerAddr, signer) {
   const raw = ethers.solidityPackedKeccak256(
     ["string", "uint256", "address"],
@@ -49,7 +45,6 @@ describe("CarbonCredit", function () {
     await contract.addRegulator(regulatorSigner.address);
   });
 
-  // ── Role management (Decentralization) ───────────────────────────────────
   describe("Role management", function () {
     it("deployer is the admin", async function () {
       expect(await contract.admin()).to.equal(admin.address);
@@ -85,10 +80,9 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── issueCredit ───────────────────────────────────────────────────────────
   describe("issueCredit", function () {
     it("mints ERC-721 NFT, emits CreditIssued, stores correct data", async function () {
-      const nonce  = mineNonce("CRED-001");
+      const nonce = mineNonce("CRED-001");
       const devSig = await signEndorsement("CRED-001", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-001", 1000, buyer.address, regulatorSigner);
 
@@ -106,7 +100,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts on duplicate creditId", async function () {
-      const nonce  = mineNonce("CRED-DUP");
+      const nonce = mineNonce("CRED-DUP");
       const devSig = await signEndorsement("CRED-DUP", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-DUP", 100, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-DUP", 100, "D", "R", 1000, buyer.address, nonce, devSig, regSig);
@@ -116,7 +110,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when called by non-registrar", async function () {
-      const nonce  = mineNonce("CRED-X");
+      const nonce = mineNonce("CRED-X");
       const devSig = await signEndorsement("CRED-X", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-X", 100, buyer.address, regulatorSigner);
       await expect(
@@ -125,7 +119,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when developerId is empty", async function () {
-      const nonce  = mineNonce("CRED-NDEV");
+      const nonce = mineNonce("CRED-NDEV");
       const devSig = await signEndorsement("CRED-NDEV", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-NDEV", 100, buyer.address, regulatorSigner);
       await expect(
@@ -134,7 +128,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when regulatorId is empty", async function () {
-      const nonce  = mineNonce("CRED-NREG");
+      const nonce = mineNonce("CRED-NREG");
       const devSig = await signEndorsement("CRED-NREG", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-NREG", 100, buyer.address, regulatorSigner);
       await expect(
@@ -143,7 +137,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when tonnes is zero", async function () {
-      const nonce  = mineNonce("CRED-ZERO");
+      const nonce = mineNonce("CRED-ZERO");
       const devSig = await signEndorsement("CRED-ZERO", 0, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-ZERO", 0, buyer.address, regulatorSigner);
       await expect(
@@ -152,7 +146,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when risk score is too high", async function () {
-      const nonce  = mineNonce("CRED-RISK");
+      const nonce = mineNonce("CRED-RISK");
       const devSig = await signEndorsement("CRED-RISK", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-RISK", 100, buyer.address, regulatorSigner);
       await expect(
@@ -161,7 +155,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when owner is zero address", async function () {
-      const nonce  = mineNonce("CRED-ZERO-ADDR");
+      const nonce = mineNonce("CRED-ZERO-ADDR");
       const devSig = await signEndorsement("CRED-ZERO-ADDR", 100, ethers.ZeroAddress, developerSigner);
       const regSig = await signEndorsement("CRED-ZERO-ADDR", 100, ethers.ZeroAddress, regulatorSigner);
       await expect(
@@ -178,10 +172,9 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── ecrecover multi-sig endorsement ──────────────────────────────────────
   describe("ecrecover endorsement", function () {
     it("reverts when developer signature is from an unregistered address", async function () {
-      const nonce  = mineNonce("CRED-BADSIG1");
+      const nonce = mineNonce("CRED-BADSIG1");
       const devSig = await signEndorsement("CRED-BADSIG1", 100, buyer.address, stranger);
       const regSig = await signEndorsement("CRED-BADSIG1", 100, buyer.address, regulatorSigner);
       await expect(
@@ -190,7 +183,7 @@ describe("CarbonCredit", function () {
     });
 
     it("reverts when regulator signature is from an unregistered address", async function () {
-      const nonce  = mineNonce("CRED-BADSIG2");
+      const nonce = mineNonce("CRED-BADSIG2");
       const devSig = await signEndorsement("CRED-BADSIG2", 100, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-BADSIG2", 100, buyer.address, stranger);
       await expect(
@@ -202,7 +195,7 @@ describe("CarbonCredit", function () {
       await contract.addDeveloper(buyer.address);
       await contract.addRegulator(buyer.address);
       const nonce = mineNonce("CRED-SAMESIG");
-      const sig   = await signEndorsement("CRED-SAMESIG", 100, buyer.address, buyer);
+      const sig = await signEndorsement("CRED-SAMESIG", 100, buyer.address, buyer);
       await expect(
         contract.issueCredit("CRED-SAMESIG", 100, "D", "R", 1000, buyer.address, nonce, sig, sig)
       ).to.be.revertedWith("CarbonCredit: developer and regulator must differ");
@@ -221,10 +214,9 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── ERC-721 token standard ────────────────────────────────────────────────
   describe("ERC-721", function () {
     beforeEach(async function () {
-      const nonce  = mineNonce("CRED-NFT1");
+      const nonce = mineNonce("CRED-NFT1");
       const devSig = await signEndorsement("CRED-NFT1", 500, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-NFT1", 500, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-NFT1", 500, "D", "R", 2000, buyer.address, nonce, devSig, regSig);
@@ -253,7 +245,7 @@ describe("CarbonCredit", function () {
     });
 
     it("tokenId increments for each new mint", async function () {
-      const nonce  = mineNonce("CRED-NFT2");
+      const nonce = mineNonce("CRED-NFT2");
       const devSig = await signEndorsement("CRED-NFT2", 500, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-NFT2", 500, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-NFT2", 500, "D", "R", 2000, buyer.address, nonce, devSig, regSig);
@@ -272,12 +264,11 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── Proof of Work ─────────────────────────────────────────────────────────
   describe("Proof of Work", function () {
     it("mineNonce() always produces a valid nonce", async function () {
       const creditId = "CRED-POW-TEST";
-      const nonce    = mineNonce(creditId);
-      const hash     = BigInt(
+      const nonce = mineNonce(creditId);
+      const hash = BigInt(
         ethers.solidityPackedKeccak256(["string", "uint256"], [creditId, nonce])
       );
       expect(hash <= POW_DIFFICULTY).to.equal(true);
@@ -288,7 +279,7 @@ describe("CarbonCredit", function () {
     });
 
     it("emits MerkleRootUpdated after successful mint", async function () {
-      const nonce  = mineNonce("CRED-MR1");
+      const nonce = mineNonce("CRED-MR1");
       const devSig = await signEndorsement("CRED-MR1", 500, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-MR1", 500, buyer.address, regulatorSigner);
       await expect(
@@ -297,14 +288,13 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── Merkle Tree ───────────────────────────────────────────────────────────
   describe("Merkle Tree", function () {
     it("merkleRoot is zero before any credits are issued", async function () {
       expect(await contract.merkleRoot()).to.equal(ethers.ZeroHash);
     });
 
     it("merkleRoot equals the single leaf after one mint", async function () {
-      const nonce  = mineNonce("CRED-MT1");
+      const nonce = mineNonce("CRED-MT1");
       const devSig = await signEndorsement("CRED-MT1", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-MT1", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-MT1", 1000, "D", "R", 2000, buyer.address, nonce, devSig, regSig);
@@ -315,7 +305,7 @@ describe("CarbonCredit", function () {
     });
 
     it("getCreditLeafHash is deterministic and uses mintedTo", async function () {
-      const nonce  = mineNonce("CRED-MT2");
+      const nonce = mineNonce("CRED-MT2");
       const devSig = await signEndorsement("CRED-MT2", 2000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-MT2", 2000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-MT2", 2000, "D", "R", 3000, buyer.address, nonce, devSig, regSig);
@@ -326,7 +316,7 @@ describe("CarbonCredit", function () {
     });
 
     it("leaf hash is stable after transfer (uses original mintedTo owner)", async function () {
-      const nonce  = mineNonce("CRED-STABLE");
+      const nonce = mineNonce("CRED-STABLE");
       const devSig = await signEndorsement("CRED-STABLE", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-STABLE", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-STABLE", 1000, "D", "R", 2000, buyer.address, nonce, devSig, regSig);
@@ -354,24 +344,24 @@ describe("CarbonCredit", function () {
     });
 
     it("verifyCredit returns true for valid single-leaf proof", async function () {
-      const nonce  = mineNonce("CRED-VERIFY");
+      const nonce = mineNonce("CRED-VERIFY");
       const devSig = await signEndorsement("CRED-VERIFY", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-VERIFY", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-VERIFY", 1000, "D", "R", 2500, buyer.address, nonce, devSig, regSig);
 
-      const leaf  = await contract.getCreditLeafHash("CRED-VERIFY");
+      const leaf = await contract.getCreditLeafHash("CRED-VERIFY");
       const valid = await contract.verifyCredit([], leaf);
       expect(valid).to.equal(true);
     });
 
     it("verifyCredit returns false for tampered leaf", async function () {
-      const nonce  = mineNonce("CRED-FAKE");
+      const nonce = mineNonce("CRED-FAKE");
       const devSig = await signEndorsement("CRED-FAKE", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-FAKE", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-FAKE", 1000, "D", "R", 2500, buyer.address, nonce, devSig, regSig);
 
       const fakeLeaf = ethers.keccak256(ethers.toUtf8Bytes("tampered"));
-      const valid    = await contract.verifyCredit([], fakeLeaf);
+      const valid = await contract.verifyCredit([], fakeLeaf);
       expect(valid).to.equal(false);
     });
 
@@ -392,10 +382,9 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── transferCredit ────────────────────────────────────────────────────────
   describe("transferCredit", function () {
     beforeEach(async function () {
-      const nonce  = mineNonce("CRED-T01");
+      const nonce = mineNonce("CRED-T01");
       const devSig = await signEndorsement("CRED-T01", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-T01", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-T01", 1000, "DEV", "REG", 5000, buyer.address, nonce, devSig, regSig);
@@ -440,10 +429,9 @@ describe("CarbonCredit", function () {
     });
   });
 
-  // ── retireCredit ──────────────────────────────────────────────────────────
   describe("retireCredit", function () {
     beforeEach(async function () {
-      const nonce  = mineNonce("CRED-R01");
+      const nonce = mineNonce("CRED-R01");
       const devSig = await signEndorsement("CRED-R01", 1000, buyer.address, developerSigner);
       const regSig = await signEndorsement("CRED-R01", 1000, buyer.address, regulatorSigner);
       await contract.issueCredit("CRED-R01", 1000, "DEV", "REG", 3000, buyer.address, nonce, devSig, regSig);

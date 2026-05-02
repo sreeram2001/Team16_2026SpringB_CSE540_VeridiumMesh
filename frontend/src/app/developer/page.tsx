@@ -175,7 +175,6 @@ export default function DeveloperPage() {
           <Button variant="outline" onClick={() => router.push("/explorer")}>Open Explorer</Button>
         </div>
 
-        {/* Wallet bar */}
         {!wallet ? (
           <Card className="border border-border/70 bg-white shadow-sm">
             <CardContent className="flex flex-col gap-3 pt-5">
@@ -223,7 +222,6 @@ export default function DeveloperPage() {
           </div>
         )}
 
-        {/* Submit Credit Request — Developers only */}
         {canSubmit && <div className="grid gap-6 xl:grid-cols-2">
           <Card className="border border-border/70 bg-white shadow-sm">
             <CardHeader className="border-b border-border/50 pb-4">
@@ -323,7 +321,6 @@ export default function DeveloperPage() {
           </Card>
         </div>}
 
-        {/* Transfer & Retire */}
         {canTransact && <div className="grid gap-6 xl:grid-cols-2">
 
           <Card className="border border-border/70 bg-white shadow-sm">

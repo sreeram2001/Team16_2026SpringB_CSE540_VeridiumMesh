@@ -17,37 +17,31 @@ export const CONTRACT_ADDRESS =
 const RPC_URL = process.env.NEXT_PUBLIC_HARDHAT_RPC ?? "http://127.0.0.1:8545";
 
 const ABI = [
-  // ── Core domain functions ────────────────────────────────────────────────
   "function transferCredit(string _creditId, address _to) external",
   "function retireCredit(string _creditId) external",
   "function getCredit(string _creditId) external view returns (uint256 tonnes, string developerId, string regulatorId, uint256 aiRiskScore, address owner, bool isRetired, uint256 tokenId)",
   "function doesCreditExist(string _creditId) external view returns (bool)",
   "function getTokenId(string _creditId) external view returns (uint256)",
-  // ── ERC-721 standard ──────────────────────────────────────────────────────
   "function name() external view returns (string)",
   "function symbol() external view returns (string)",
   "function ownerOf(uint256 tokenId) external view returns (address)",
   "function balanceOf(address owner) external view returns (uint256)",
   "function creditToTokenId(string) external view returns (uint256)",
   "function tokenToCreditId(uint256) external view returns (string)",
-  // ── Merkle Tree ───────────────────────────────────────────────────────────
   "function merkleRoot() external view returns (bytes32)",
   "function totalCredits() external view returns (uint256)",
   "function getCreditLeafHash(string _creditId) external view returns (bytes32)",
   "function verifyCredit(bytes32[] calldata proof, bytes32 leaf) external view returns (bool)",
-  // ── ecrecover & roles (read-only) ─────────────────────────────────────────
   "function endorsementHash(string _creditId, uint256 _tonnes, address _owner) external pure returns (bytes32)",
   "function admin() external view returns (address)",
   "function isRegistrar(address) external view returns (bool)",
   "function isDeveloper(address) external view returns (bool)",
   "function isRegulator(address) external view returns (bool)",
-  // ── PoW ───────────────────────────────────────────────────────────────────
   "function POW_DIFFICULTY() external view returns (uint256)",
 ];
 
 export const REGISTRAR_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
-// Public address registry — names and roles only, no private keys in the browser.
 export const PARTICIPANT_REGISTRY: Record<string, { name: string; role: string }> = {
   "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": { name: "GreenBuild Solutions", role: "Developer" },
   "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": { name: "EcoForest Initiative", role: "Developer" },
@@ -57,7 +51,6 @@ export const PARTICIPANT_REGISTRY: Record<string, { name: string; role: string }
   "0x976EA74026E726554dB657fA54763abd0C3a0aa9": { name: "EPA Registry", role: "Regulator" },
 };
 
-// Keep HARDHAT_WALLETS for backward compatibility (tests, etc.)
 export const HARDHAT_WALLETS: Record<string, { name: string; role: string; privateKey: string }> = {
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {
     name: "VeridiumAI", role: "Registrar",
@@ -88,8 +81,6 @@ export const HARDHAT_WALLETS: Record<string, { name: string; role: string; priva
     privateKey: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e",
   },
 };
-
-// ── MetaMask helpers ──────────────────────────────────────────────────────────
 
 async function getSigner() {
   if (!window.ethereum) throw new Error("MetaMask not found. Install it from metamask.io");
@@ -127,8 +118,6 @@ export async function getMetaMaskAddress(): Promise<string> {
   return signer.address;
 }
 
-// ── MetaMask-first transfer & retire ──────────────────────────────────────────
-
 export async function transferCreditOnChain(creditId: string, to: string): Promise<string> {
   const signer = await getSigner();
   const contract = new Contract(CONTRACT_ADDRESS, ABI, signer);
@@ -145,11 +134,8 @@ export async function retireCreditOnChain(creditId: string): Promise<string> {
   return tx.hash as string;
 }
 
-// Legacy aliases for backward compatibility
 export const transferCreditWithMetaMask = transferCreditOnChain;
 export const retireCreditWithMetaMask = retireCreditOnChain;
-
-// ── Merkle Tree helpers (read-only) ──────────────────────────────────────────
 
 export async function getMerkleRoot(): Promise<string> {
   const provider = new JsonRpcProvider(RPC_URL);
@@ -176,8 +162,6 @@ export async function getTotalCredits(): Promise<number> {
   return Number(await contract.totalCredits());
 }
 
-// ── ERC-721 helpers (read-only) ───────────────────────────────────────────────
-
 export async function getTokenOwner(tokenId: number): Promise<string> {
   const provider = new JsonRpcProvider(RPC_URL);
   const contract = new Contract(CONTRACT_ADDRESS, ABI, provider);
@@ -195,8 +179,6 @@ export async function getTokenId(creditId: string): Promise<number> {
   const contract = new Contract(CONTRACT_ADDRESS, ABI, provider);
   return Number(await contract.getTokenId(creditId));
 }
-
-// ── Role helpers (read-only) ──────────────────────────────────────────────────
 
 export async function isRegistrar(address: string): Promise<boolean> {
   const provider = new JsonRpcProvider(RPC_URL);

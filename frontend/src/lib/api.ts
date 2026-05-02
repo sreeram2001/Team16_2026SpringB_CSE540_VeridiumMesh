@@ -13,7 +13,6 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
       const data = await res.json();
       message = data?.detail ?? data?.error ?? fallback;
     } catch {
-      // JSON parse failed, use fallback
     }
     throw new Error(message);
   }
@@ -153,8 +152,6 @@ export function fetchStakeholders() {
 export function fetchCreditProof(creditId: string) {
   return apiRequest<MerkleProofResponse>(`/credits/${encodeURIComponent(creditId)}/proof`);
 }
-
-// ── Pending / Regulator Approval types ────────────────────────────────────────
 
 export type PendingCredit = {
   pending_id: string;

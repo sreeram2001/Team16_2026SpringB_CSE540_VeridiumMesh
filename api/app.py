@@ -25,18 +25,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-HARDHAT_RPC      = os.getenv("HARDHAT_RPC",         "http://127.0.0.1:8545")
-DEPLOYER_ADDRESS = os.getenv("DEPLOYER_ADDRESS",    "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-DEPLOYER_KEY     = os.getenv("DEPLOYER_PRIVATE_KEY","0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS",    "0x5FbDB2315678afecb367f032d93F642f64180aa3")
+HARDHAT_RPC = os.getenv("HARDHAT_RPC", "http://127.0.0.1:8545")
+DEPLOYER_ADDRESS = os.getenv("DEPLOYER_ADDRESS", "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+DEPLOYER_KEY = os.getenv("DEPLOYER_PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x5FbDB2315678afecb367f032d93F642f64180aa3")
 
-# ── ecrecover endorsement signers ─────────────────────────────────────────────
-# Hardhat account #1 — GreenBuild Solutions (registered as Developer in deploy.js)
 DEVELOPER_SIGNER_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
-DEVELOPER_SIGNER_KEY     = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
-# Hardhat account #6 — EPA Registry (registered as Regulator in deploy.js)
+DEVELOPER_SIGNER_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 REGULATOR_SIGNER_ADDRESS = "0x976EA74026E726554dB657fA54763abd0C3a0aa9"
-REGULATOR_SIGNER_KEY     = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
+REGULATOR_SIGNER_KEY = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
 
 _ARTIFACT = Path(__file__).resolve().parent.parent / \
     "ethereum/artifacts/contracts/CarbonCredit.sol/CarbonCredit.json"
@@ -57,36 +54,21 @@ _PEER_AVG_TONNES = 50_000
 
 REGULATOR_ADDRESS = "0x976EA74026E726554dB657fA54763abd0C3a0aa9"
 
-# In-memory store for credits awaiting regulator approval
 _pending: dict[str, dict] = {}
 
-# ── ecrecover endorsement signing ────────────────────────────────────────────
+
 def _sign_endorsement(credit_id: str, tonnes: int, owner: str, private_key: str) -> bytes:
-    """
-    Sign the endorsement hash for a credit mint.
-    Mirrors Solidity: endorsementHash = toEthSignedMessageHash(keccak256(creditId ++ tonnes ++ owner))
-    abi.encodePacked(string, uint256, address) = UTF-8 bytes + 32-byte BE int + 20-byte address.
-    """
-    packed   = credit_id.encode("utf-8") + tonnes.to_bytes(32, "big") + bytes.fromhex(owner[2:])
+    packed = credit_id.encode("utf-8") + tonnes.to_bytes(32, "big") + bytes.fromhex(owner[2:])
     msg_hash = Web3.keccak(packed)
-    # encode_defunct applies "\x19Ethereum Signed Message:\n32" prefix (EIP-191)
-    message  = encode_defunct(primitive=bytes(msg_hash))
-    signed   = Account.sign_message(message, private_key=private_key)
+    message = encode_defunct(primitive=bytes(msg_hash))
+    signed = Account.sign_message(message, private_key=private_key)
     return bytes(signed.signature)
 
 
-# ── Proof-of-Work ─────────────────────────────────────────────────────────────
-# Must match Solidity: keccak256(abi.encodePacked(creditId, nonce)) <= POW_DIFFICULTY
-# POW_DIFFICULTY = type(uint256).max >> 8  →  top 8 bits must be 0  →  1/256 chance per try
 _POW_DIFFICULTY = (2**256 - 1) >> 8
 
 
 def mine_pow_nonce(credit_id: str) -> int:
-    """
-    Find a nonce n such that keccak256(creditId_bytes ++ nonce_bytes32) <= POW_DIFFICULTY.
-    abi.encodePacked(string, uint256) = raw UTF-8 bytes + 32-byte big-endian integer.
-    Expected iterations ≈ 256.
-    """
     nonce = 0
     while True:
         packed = credit_id.encode("utf-8") + nonce.to_bytes(32, "big")
@@ -96,18 +78,11 @@ def mine_pow_nonce(credit_id: str) -> int:
         nonce += 1
 
 
-# ── Merkle Tree helpers ───────────────────────────────────────────────────────
-# Must exactly mirror the Solidity _computeMerkleRoot logic (sorted-pair hashing).
-
 def _credit_leaf(credit_id: str, tonnes: int, owner: str, ai_risk_score_int: int) -> bytes:
-    """
-    keccak256(abi.encodePacked(creditId, tonnes, owner, aiRiskScore))
-    = keccak256( utf8(creditId) ++ uint256_be(tonnes) ++ address_bytes(owner) ++ uint256_be(score) )
-    """
     packed = (
         credit_id.encode("utf-8")
         + tonnes.to_bytes(32, "big")
-        + bytes.fromhex(owner[2:])          # 20-byte address (strip 0x)
+        + bytes.fromhex(owner[2:])
         + ai_risk_score_int.to_bytes(32, "big")
     )
     return bytes(Web3.keccak(packed))
@@ -123,10 +98,6 @@ def _next_power_of_2(n: int) -> int:
 
 
 def _build_merkle_proof(all_leaves: list[bytes], target_index: int) -> tuple[bytes, list[bytes]]:
-    """
-    Returns (merkle_root, proof) for the leaf at target_index.
-    Sibling pairs are sorted before hashing to match Solidity.
-    """
     n = len(all_leaves)
     if n == 0:
         return bytes(32), []
@@ -141,7 +112,7 @@ def _build_merkle_proof(all_leaves: list[bytes], target_index: int) -> tuple[byt
     current_size = size
 
     while current_size > 1:
-        sibling = idx ^ 1                        # sibling index
+        sibling = idx ^ 1
         proof.append(nodes[sibling])
 
         half = current_size >> 1
@@ -226,8 +197,8 @@ class ApproveRequest(BaseModel):
 
 def _compute_features(project_type: str, tonnes: int) -> tuple[float, int, int]:
     r_ratio = round(max(0.1, tonnes / _PEER_AVG_TONNES), 4)
-    m_flag  = 1 if project_type in _HIGH_RISK_TYPES else 0
-    t_flag  = 1 if r_ratio > 3.0 else 0
+    m_flag = 1 if project_type in _HIGH_RISK_TYPES else 0
+    t_flag = 1 if r_ratio > 3.0 else 0
     return r_ratio, m_flag, t_flag
 
 
@@ -258,9 +229,9 @@ def issue_credit(req: MintRequest):
         "T_flag":      t_flag,
     }
 
-    risk_score     = score_project(features)
+    risk_score = score_project(features)
     risk_score_int = int(round(risk_score * 10_000))
-    credit_id      = f"CRED-{uuid.uuid4().hex[:8].upper()}"
+    credit_id = f"CRED-{uuid.uuid4().hex[:8].upper()}"
 
     try:
         pow_nonce = mine_pow_nonce(credit_id)
@@ -293,7 +264,6 @@ def issue_credit(req: MintRequest):
     if receipt.status != 1:
         raise HTTPException(status_code=500, detail="Transaction reverted on-chain.")
 
-    # Parse tokenId from the CreditIssued event
     token_id = None
     try:
         logs = contract.events.CreditIssued().process_receipt(receipt)
@@ -323,12 +293,10 @@ def issue_credit(req: MintRequest):
 
 @app.post("/credits/pending", status_code=201)
 def submit_pending(req: MintRequest):
-    """Developer submits a credit for regulator review. AI-scored but not yet minted."""
     owner_address = STAKEHOLDERS.get(req.owner_id)
     if not owner_address:
         raise HTTPException(status_code=400, detail=f"Unknown stakeholder '{req.owner_id}'.")
 
-    # Optionally verify developer signature
     if req.developer_signature:
         msg_hash = Web3.solidity_keccak(
             ["string", "string", "uint256"],
@@ -357,7 +325,7 @@ def submit_pending(req: MintRequest):
         "T_flag":      t_flag,
     }
 
-    risk_score     = score_project(features)
+    risk_score = score_project(features)
     risk_score_int = int(round(risk_score * 10_000))
 
     if risk_score_int >= 7000:
@@ -398,13 +366,11 @@ def submit_pending(req: MintRequest):
 
 @app.get("/credits/pending")
 def list_pending():
-    """List all pending credits awaiting regulator approval."""
     return list(_pending.values())
 
 
 @app.post("/credits/approve/{pending_id}", status_code=201)
 def approve_credit(pending_id: str, req: ApproveRequest):
-    """Regulator approves a pending credit — triggers on-chain mint with full PoW + ecrecover."""
     pending = _pending.get(pending_id)
     if not pending:
         raise HTTPException(status_code=404, detail=f"Pending credit '{pending_id}' not found.")
@@ -417,7 +383,7 @@ def approve_credit(pending_id: str, req: ApproveRequest):
 
     w3, contract = get_contract()
 
-    credit_id      = pending["credit_id"]
+    credit_id = pending["credit_id"]
     owner_checksum = Web3.to_checksum_address(pending["owner_address"])
     risk_score_int = pending["risk_score_int"]
 
@@ -451,7 +417,6 @@ def approve_credit(pending_id: str, req: ApproveRequest):
     if receipt.status != 1:
         raise HTTPException(status_code=500, detail="Transaction reverted on-chain.")
 
-    # Parse tokenId from the CreditIssued event
     token_id = None
     try:
         logs = contract.events.CreditIssued().process_receipt(receipt)
@@ -514,8 +479,8 @@ def get_credit(credit_id: str):
 @app.get("/chain/stats")
 def get_chain_stats():
     w3, contract = get_contract()
-    admin         = contract.functions.admin().call()
-    merkle_root   = contract.functions.merkleRoot().call()
+    admin = contract.functions.admin().call()
+    merkle_root = contract.functions.merkleRoot().call()
     total_credits = contract.functions.totalCredits().call()
     return {
         "network":           "Hardhat Local",
@@ -591,18 +556,11 @@ def get_chain_events():
 
 @app.get("/credits/{credit_id}/proof")
 def get_credit_proof(credit_id: str):
-    """
-    Return the Merkle inclusion proof for a credit.
-
-    The proof is an ordered list of sibling hashes from the leaf up to the root.
-    Pass it to the contract's verifyCredit(proof, leaf) to confirm inclusion.
-    """
     _, contract = get_contract()
 
     if not contract.functions.doesCreditExist(credit_id).call():
         raise HTTPException(status_code=404, detail=f"Credit '{credit_id}' not found.")
 
-    # Rebuild leaf list in insertion order from on-chain events
     try:
         issued_events = contract.events.CreditIssued.get_logs(from_block=0)
     except Exception as e:
@@ -639,8 +597,4 @@ def get_credit_proof(credit_id: str):
         "proof":          ["0x" + p.hex() for p in proof],
         "proof_length":   len(proof),
         "total_credits":  len(all_leaves),
-        "how_to_verify":  (
-            f"Call contract.verifyCredit({['0x'+p.hex() for p in proof]}, '{leaf_hex}') "
-            f"— should return true"
-        ),
     }
