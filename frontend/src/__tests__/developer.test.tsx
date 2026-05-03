@@ -38,7 +38,7 @@ const mockRetireCreditOnChain = jest.fn();
 jest.mock("@/lib/contract", () => {
   const HARDHAT_WALLETS: Record<string, { name: string; role: string; privateKey: string }> = {
     "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {
-      name: "VeridiumAI",
+      name: "VeridiumMesh",
       role: "Registrar",
       privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
     },
@@ -132,7 +132,7 @@ describe("DeveloperPage — wallet connection", () => {
     renderPage();
     await connectWallet(REGISTRAR_ADDR);
     await waitFor(() =>
-      expect(screen.getByText("VeridiumAI")).toBeInTheDocument()
+      expect(screen.getByText("VeridiumMesh")).toBeInTheDocument()
     );
     expect(screen.getByText(REGISTRAR_ADDR)).toBeInTheDocument();
   });
@@ -140,7 +140,7 @@ describe("DeveloperPage — wallet connection", () => {
   it("clears wallet bar after disconnect", async () => {
     renderPage();
     await connectWallet(REGISTRAR_ADDR);
-    await waitFor(() => expect(screen.getByText("VeridiumAI")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("VeridiumMesh")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: /disconnect/i }));
     await waitFor(() =>

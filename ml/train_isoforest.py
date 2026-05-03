@@ -1,5 +1,5 @@
 """
-VeridiumAI — Isolation Forest Training Script
+VeridiumMesh — Isolation Forest Training Script
 Trains an anomaly detection model on carbon credit project features.
 Outputs: ml/isoforest.joblib, ml/scaler.joblib, data/project_riskscores.csv
 """

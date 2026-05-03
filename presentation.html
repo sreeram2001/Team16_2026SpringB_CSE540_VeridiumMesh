@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VeridiumMesh Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+        }
+
+        .slide {
+            width: 100vw;
+            min-height: 100vh;
+            padding: 60px 80px;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .slide.active {
+            display: flex;
+        }
+
+        h1 {
+            font-size: 48px;
+            font-weight: 700;
+            color: #34d399;
+            margin-bottom: 12px;
+        }
+
+        h2 {
+            font-size: 36px;
+            font-weight: 600;
+            color: #6ee7b7;
+            margin-bottom: 30px;
+        }
+
+        h3 {
+            font-size: 24px;
+            font-weight: 600;
+            color: #a7f3d0;
+            margin-bottom: 16px;
+        }
+
+        p,
+        li {
+            font-size: 22px;
+            line-height: 1.7;
+            color: #d1d5db;
+        }
+
+        ul {
+            padding-left: 30px;
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 24px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .team {
+            font-size: 20px;
+            color: #6b7280;
+            margin-top: 20px;
+        }
+
+        .presenter {
+            display: inline-block;
+            background: #065f46;
+            color: #a7f3d0;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 24px;
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-top: 20px;
+        }
+
+        .grid3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        .card {
+            background: #1a1a2e;
+            border: 1px solid #2d2d44;
+            border-radius: 12px;
+            padding: 24px;
+        }
+
+        .card h3 {
+            color: #34d399;
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        .card p,
+        .card li {
+            font-size: 18px;
+        }
+
+        .highlight {
+            color: #34d399;
+            font-weight: 600;
+        }
+
+        .warn {
+            color: #fbbf24;
+        }
+
+        .danger {
+            color: #f87171;
+        }
+
+        .flow {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        .flow-step {
+            background: #1a1a2e;
+            border: 1px solid #2d2d44;
+            border-radius: 10px;
+            padding: 14px 20px;
+            font-size: 18px;
+        }
+
+        .flow-arrow {
+            color: #34d399;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .arch-box {
+            text-align: center;
+            background: #1a1a2e;
+            border: 1px solid #2d2d44;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .arch-box .label {
+            font-size: 14px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .arch-box .name {
+            font-size: 20px;
+            color: #34d399;
+            font-weight: 600;
+            margin-top: 6px;
+        }
+
+        .arch-box .tech {
+            font-size: 15px;
+            color: #9ca3af;
+            margin-top: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        th {
+            text-align: left;
+            padding: 10px 16px;
+            background: #1a1a2e;
+            color: #34d399;
+            font-size: 18px;
+            border-bottom: 2px solid #2d2d44;
+        }
+
+        td {
+            padding: 10px 16px;
+            font-size: 17px;
+            border-bottom: 1px solid #1f1f33;
+        }
+
+        .nav {
+            position: fixed;
+            bottom: 20px;
+            right: 30px;
+            display: flex;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .nav button {
+            background: #1a1a2e;
+            border: 1px solid #2d2d44;
+            color: #34d399;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .nav button:hover {
+            background: #2d2d44;
+        }
+
+        .counter {
+            position: fixed;
+            bottom: 24px;
+            left: 30px;
+            color: #4b5563;
+            font-size: 14px;
+        }
+
+        .demo-note {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .demo-note p {
+            font-size: 18px;
+            color: #94a3b8;
+        }
+
+        .demo-note .step {
+            color: #34d399;
+            font-weight: 600;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Slide 1: Title -->
+    <div class="slide active" id="s1">
+        <div>
+            <h1 style="font-size:56px;">VeridiumMesh</h1>
+            <p class="subtitle" style="font-size:28px;">AI-Powered Carbon Credit Fraud Detection on Ethereum</p>
+            <p style="margin-top:40px; font-size:20px; color:#6b7280;">Team 16 &middot; CSE 540 Engineering Blockchain
+                Applications &middot; Spring B 2026</p>
+            <div style="margin-top:30px; display:flex; gap:30px; flex-wrap:wrap;">
+                <span style="font-size:18px;">Harpreet Kaur Brar</span>
+                <span style="font-size:18px;">Sreeram Saravana Prasad</span>
+                <span style="font-size:18px;">Asmi Umesh Pulgam</span>
+                <span style="font-size:18px;">Brijesh Kumar</span>
+                <span style="font-size:18px;">Vandhana Vemuri</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 2: The Problem -->
+    <div class="slide" id="s2">
+        <span class="presenter">Harpreet presents</span>
+        <h2>The Problem</h2>
+        <ul>
+            <li>Carbon credit markets lose <span class="danger">$250M+ annually</span> to fraud</li>
+            <li>Projects inflate issuance volumes, credits get double counted, some projects don't even exist</li>
+            <li>No centralized authority can be trusted to screen every single credit</li>
+            <li>Existing registries are opaque and lack real time verification</li>
+        </ul>
+        <div class="card" style="margin-top:30px;">
+            <h3>What We Need</h3>
+            <p>A transparent, tamper proof system where every credit is screened by AI and permanently recorded on an
+                immutable ledger before anyone can trade it.</p>
+        </div>
+    </div>
+
+    <!-- Slide 3: Why Blockchain -->
+    <div class="slide" id="s3">
+        <span class="presenter">Harpreet presents</span>
+        <h2>Why Blockchain?</h2>
+        <div class="grid2">
+            <div class="card">
+                <h3>Immutability</h3>
+                <p>Once a credit is recorded on Ethereum, nobody can alter or delete it. The audit trail is permanent.
+                </p>
+            </div>
+            <div class="card">
+                <h3>Transparency</h3>
+                <p>Anyone can verify the full history of any credit. No hidden modifications, no backdoors.</p>
+            </div>
+            <div class="card">
+                <h3>Smart Contract Enforcement</h3>
+                <p>Business rules are enforced by code, not people. No human can bypass the dual approval requirement.
+                </p>
+            </div>
+            <div class="card">
+                <h3>Digital Signatures</h3>
+                <p>ECDSA signatures prove identity cryptographically. Only the key holder can transfer or retire their
+                    credits.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 4: Stakeholder Roles -->
+    <div class="slide" id="s4">
+        <span class="presenter">Sreeram presents</span>
+        <h2>Stakeholder Roles</h2>
+        <table>
+            <tr>
+                <th>Role</th>
+                <th>Who</th>
+                <th>What They Do</th>
+            </tr>
+            <tr>
+                <td class="highlight">Developer</td>
+                <td>GreenBuild Solutions</td>
+                <td>Submits carbon credit projects for approval</td>
+            </tr>
+            <tr>
+                <td class="highlight">Regulator</td>
+                <td>EPA Registry</td>
+                <td>Reviews AI scores and approves or rejects credits</td>
+            </tr>
+            <tr>
+                <td class="highlight">Buyer</td>
+                <td>CarbonMarket Exchange</td>
+                <td>Purchases, holds, transfers, and retires credits</td>
+            </tr>
+            <tr>
+                <td class="highlight">Registrar</td>
+                <td>Backend System</td>
+                <td>Calls the smart contract to mint approved credits</td>
+            </tr>
+            <tr>
+                <td class="highlight">Admin</td>
+                <td>Contract Deployer</td>
+                <td>Manages role assignments for decentralization</td>
+            </tr>
+        </table>
+        <div class="flow" style="margin-top:30px;">
+            <div class="flow-step">Developer Submits</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">AI Scores</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">Regulator Approves</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">Minted On Chain</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step">Trade / Retire</div>
+        </div>
+    </div>
+
+    <!-- Slide 5: Technical Architecture -->
+    <div class="slide" id="s5">
+        <span class="presenter">Sreeram presents</span>
+        <h2>Technical Architecture</h2>
+        <div
+            style="display:flex; gap:20px; align-items:center; justify-content:center; margin-top:20px; flex-wrap:wrap;">
+            <div class="arch-box" style="width:200px;">
+                <div class="label">Frontend</div>
+                <div class="name">Next.js 16</div>
+                <div class="tech">Tailwind + shadcn/ui</div>
+            </div>
+            <span class="flow-arrow">↔</span>
+            <div class="arch-box" style="width:200px;">
+                <div class="label">Wallet</div>
+                <div class="name">MetaMask</div>
+                <div class="tech">ethers.js + BrowserProvider</div>
+            </div>
+            <span class="flow-arrow">↔</span>
+            <div class="arch-box" style="width:200px;">
+                <div class="label">Backend</div>
+                <div class="name">FastAPI</div>
+                <div class="tech">Python + web3.py</div>
+            </div>
+            <span class="flow-arrow">↔</span>
+            <div class="arch-box" style="width:200px;">
+                <div class="label">Blockchain</div>
+                <div class="name">Ethereum</div>
+                <div class="tech">Solidity + Hardhat</div>
+            </div>
+        </div>
+        <div style="display:flex; justify-content:center; margin-top:20px;">
+            <div class="arch-box" style="width:200px;">
+                <div class="label">AI Model</div>
+                <div class="name">Isolation Forest</div>
+                <div class="tech">scikit-learn + joblib</div>
+            </div>
+        </div>
+        <p style="text-align:center; margin-top:24px; font-size:18px; color:#6b7280;">Frontend talks to backend via
+            REST. Backend talks to contract via web3.py. MetaMask signs transactions in the browser.</p>
+    </div>
+
+    <!-- Slide 6: Smart Contract Design -->
+    <div class="slide" id="s6">
+        <span class="presenter">Brijesh presents</span>
+        <h2>Smart Contract: 5 Blockchain Principles</h2>
+        <div class="grid3" style="grid-template-columns: 1fr 1fr;">
+            <div class="card">
+                <h3>1. ERC-721 NFTs</h3>
+                <p>Every credit is a unique non-fungible token. Transfers and burns use the ERC-721 standard. MetaMask
+                    shows them as NFTs.</p>
+            </div>
+            <div class="card">
+                <h3>2. ecrecover Multi-Sig</h3>
+                <p>Minting requires ECDSA signatures from both a registered developer and regulator. Contract recovers
+                    signers on chain.</p>
+            </div>
+            <div class="card">
+                <h3>3. Proof of Work</h3>
+                <p>Every mint needs a nonce where keccak256(creditId + nonce) has top 8 bits = 0. About 256 attempts on
+                    average.</p>
+            </div>
+            <div class="card">
+                <h3>4. Merkle Tree</h3>
+                <p>Each credit is a leaf in an on-chain tree. Inclusion proofs verified in O(log n) via OpenZeppelin
+                    MerkleProof.</p>
+            </div>
+            <div class="card" style="grid-column: span 2;">
+                <h3>5. Decentralization & Access Control</h3>
+                <p>Admin can register multiple registrars, developers, and regulators independently. No single address
+                    controls all roles. Risk score >= 0.7 is rejected by the contract automatically.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 7: AI Scoring -->
+    <div class="slide" id="s7">
+        <span class="presenter">Asmi presents</span>
+        <h2>AI Scoring Layer</h2>
+        <div class="grid2">
+            <div>
+                <h3>Isolation Forest Model</h3>
+                <ul>
+                    <li>Trained on Berkeley VROD dataset (5,700 real carbon credit projects)</li>
+                    <li>Unsupervised anomaly detection</li>
+                    <li>Score: 0.0 (safe) to 1.0 (suspicious)</li>
+                    <li>Threshold: >= 0.7 is <span class="danger">HIGH RISK</span> and rejected</li>
+                </ul>
+                <h3 style="margin-top:24px;">Four Features</h3>
+                <ul>
+                    <li><span class="highlight">R_ratio</span>: tonnes / 50,000 (inflation vs peer average)</li>
+                    <li><span class="highlight">Vintage_Age</span>: how old the project is</li>
+                    <li><span class="highlight">M_flag</span>: 1 if historically risky type (Solar, REDD+, Wind)</li>
+                    <li><span class="highlight">T_flag</span>: 1 if volume > 3x average</li>
+                </ul>
+            </div>
+            <div>
+                <div class="card" style="margin-bottom:20px;">
+                    <h3 style="color:#34d399;">Low Risk Example</h3>
+                    <p>Cookstoves, 5,000 tonnes, recent vintage</p>
+                    <p style="font-size:32px; font-weight:700; color:#34d399; margin-top:8px;">Score: 0.25 ✓</p>
+                </div>
+                <div class="card">
+                    <h3 style="color:#f87171;">High Risk Example</h3>
+                    <p>Solar, 600,000 tonnes, 18 year old vintage</p>
+                    <p style="font-size:32px; font-weight:700; color:#f87171; margin-top:8px;">Score: 0.85 ✗ Rejected
+                    </p>
+                </div>
+                <p style="margin-top:16px; font-size:16px; color:#6b7280;">Score stored on chain as uint256 (float ×
+                    10,000). Example: 0.8451 → 8451</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 8: Demo - Developer -->
+    <div class="slide" id="s8">
+        <span class="presenter">Sreeram demos</span>
+        <h2>Demo: Developer Submits a Credit</h2>
+        <div class="demo-note">
+            <p><span class="step">Step 1:</span> Open Developer Console at localhost:3000/developer</p>
+            <p><span class="step">Step 2:</span> Connect MetaMask as GreenBuild Solutions (Developer)</p>
+            <p><span class="step">Step 3:</span> Fill in project details (Project ID, Type, Description, Tonnes, Vintage
+                Year)</p>
+            <p><span class="step">Step 4:</span> Click "Sign & Submit for Approval"</p>
+            <p><span class="step">Step 5:</span> MetaMask pops up to sign the request</p>
+            <p><span class="step">Result:</span> AI risk score displayed, credit enters pending queue with a Pending ID
+            </p>
+        </div>
+        <p style="margin-top:20px; color:#6b7280; font-size:18px;">[ LIVE DEMO ]</p>
+    </div>
+
+    <!-- Slide 9: Demo - Regulator -->
+    <div class="slide" id="s9">
+        <span class="presenter">Harpreet demos</span>
+        <h2>Demo: Regulator Approves</h2>
+        <div class="demo-note">
+            <p><span class="step">Step 1:</span> Switch MetaMask to EPA Registry account</p>
+            <p><span class="step">Step 2:</span> Open Regulator Dashboard at localhost:3000/regulator</p>
+            <p><span class="step">Step 3:</span> See the pending credit with AI risk score and project details</p>
+            <p><span class="step">Step 4:</span> Click "Approve & Sign"</p>
+            <p><span class="step">Step 5:</span> MetaMask pops up to sign the endorsement</p>
+            <p><span class="step">Result:</span> Backend mines PoW, signs both endorsements, mints the ERC-721 NFT on
+                chain</p>
+        </div>
+        <p style="margin-top:20px; color:#6b7280; font-size:18px;">[ LIVE DEMO ]</p>
+    </div>
+
+    <!-- Slide 10: Demo - Explorer -->
+    <div class="slide" id="s10">
+        <span class="presenter">Brijesh demos</span>
+        <h2>Demo: Explorer & Merkle Verification</h2>
+        <div class="demo-note">
+            <p><span class="step">Step 1:</span> Open Explorer at localhost:3000/explorer</p>
+            <p><span class="step">Step 2:</span> See live chain stats (block number, Merkle root, total credits)</p>
+            <p><span class="step">Step 3:</span> Paste the Credit ID and click Lookup</p>
+            <p><span class="step">Step 4:</span> View full on-chain data (tonnes, owner, risk score, token ID)</p>
+            <p><span class="step">Step 5:</span> Click "Get Merkle Proof" to see the inclusion proof</p>
+            <p><span class="step">Step 6:</span> Click "Verify On-Chain" to confirm against the contract</p>
+            <p><span class="step">Result:</span> Green checkmark confirming the credit exists in the Merkle tree</p>
+        </div>
+        <p style="margin-top:20px; color:#6b7280; font-size:18px;">[ LIVE DEMO ]</p>
+    </div>
+
+    <!-- Slide 11: Demo - Transfer & Retire -->
+    <div class="slide" id="s11">
+        <span class="presenter">Brijesh demos</span>
+        <h2>Demo: Transfer & Retire</h2>
+        <div class="demo-note">
+            <p><span class="step">Transfer:</span> Switch to the credit owner's account → Select recipient → MetaMask
+                signs → Ownership changes on chain</p>
+            <p><span class="step">Retire:</span> Owner clicks Retire → MetaMask signs → NFT is permanently burned →
+                Cannot be transferred again</p>
+            <p><span class="step">Activity Feed:</span> All events (issued, transferred, retired) appear in the
+                Explorer's live feed</p>
+        </div>
+        <div class="flow" style="margin-top:30px;">
+            <div class="flow-step" style="border-color:#34d399;">Mint</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step" style="border-color:#3b82f6;">Transfer</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step" style="border-color:#3b82f6;">Transfer</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step" style="border-color:#f97316;">Retire (Burn)</div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-step" style="border-color:#ef4444; color:#f87171;">Permanent</div>
+        </div>
+    </div>
+
+    <!-- Slide 12: Testing -->
+    <div class="slide" id="s12">
+        <span class="presenter">Vandhana presents</span>
+        <h2>Testing & Error Handling</h2>
+        <div class="grid2">
+            <div class="card">
+                <h3>Solidity Tests (30+)</h3>
+                <ul>
+                    <li>Role management (add/remove registrar, developer, regulator)</li>
+                    <li>issueCredit with valid and invalid inputs</li>
+                    <li>ecrecover: unregistered signer, same signer for both roles</li>
+                    <li>ERC-721: ownerOf, balanceOf, tokenId mapping, burn on retire</li>
+                    <li>Proof of Work: valid nonce, invalid nonce rejection</li>
+                    <li>Merkle Tree: root updates, leaf stability after transfer, proof verification</li>
+                    <li>Transfer and retire edge cases</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h3>Python & Frontend Tests</h3>
+                <ul>
+                    <li>API input validation (negative tonnes, blank IDs, bad vintage years)</li>
+                    <li>ML feature computation (R_ratio, M_flag, T_flag)</li>
+                    <li>Integration tests against live Hardhat node</li>
+                    <li>Risk score round trip (mint → read back from chain)</li>
+                    <li>Frontend contract interaction mocks</li>
+                    <li>Wallet context auto-disconnect on account change</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 13: Limitations -->
+    <div class="slide" id="s13">
+        <span class="presenter">Asmi presents</span>
+        <h2>Limitations & Trade-offs</h2>
+        <table>
+            <tr>
+                <th>Limitation</th>
+                <th>Impact</th>
+                <th>Why We Made This Choice</th>
+            </tr>
+            <tr>
+                <td>In-memory pending queue</td>
+                <td>Lost on server restart</td>
+                <td>Simpler for demo; production would use PostgreSQL</td>
+            </tr>
+            <tr>
+                <td>Backend signs on behalf of developer</td>
+                <td>Centralized trust for endorsement</td>
+                <td>Hardhat accounts can't do browser signing for the contract call</td>
+            </tr>
+            <tr>
+                <td>Merkle tree recomputed fully on each mint</td>
+                <td>O(n) gas cost grows with credits</td>
+                <td>Simpler implementation; incremental updates would reduce gas</td>
+            </tr>
+            <tr>
+                <td>Low PoW difficulty (~256 hashes)</td>
+                <td>Easy to mine</td>
+                <td>Fast for demo; tunable for production</td>
+            </tr>
+            <tr>
+                <td>Local Hardhat node only</td>
+                <td>No real consensus or persistence</td>
+                <td>Free, fast, deterministic for development</td>
+            </tr>
+            <tr>
+                <td>Unsupervised ML model</td>
+                <td>Catches anomalies, not confirmed fraud</td>
+                <td>No labeled fraud dataset available for supervised learning</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Slide 14: Future Work -->
+    <div class="slide" id="s14">
+        <span class="presenter">Vandhana presents</span>
+        <h2>Future Improvements</h2>
+        <div class="grid3">
+            <div class="card">
+                <h3>Testnet Deployment</h3>
+                <p>Deploy to Sepolia or Polygon Mumbai for real network behavior with actual consensus.</p>
+            </div>
+            <div class="card">
+                <h3>Persistent Storage</h3>
+                <p>PostgreSQL for the pending queue so credits survive server restarts.</p>
+            </div>
+            <div class="card">
+                <h3>IPFS Documents</h3>
+                <p>Store project documentation on IPFS and link the hash to each credit on chain.</p>
+            </div>
+            <div class="card">
+                <h3>Better ML Model</h3>
+                <p>Supervised learning if labeled fraud data becomes available. Ensemble methods for higher accuracy.
+                </p>
+            </div>
+            <div class="card">
+                <h3>Gas Optimization</h3>
+                <p>Batch minting and incremental Merkle updates to reduce per-credit gas costs.</p>
+            </div>
+            <div class="card">
+                <h3>Privacy (zk-SNARKs)</h3>
+                <p>Zero knowledge proofs so auditors can verify credits without seeing all details.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Slide 15: Team -->
+    <div class="slide" id="s15">
+        <span class="presenter">Everyone</span>
+        <h2>Team Contributions</h2>
+        <table>
+            <tr>
+                <th>Member</th>
+                <th>Contributions</th>
+            </tr>
+            <tr>
+                <td class="highlight">Harpreet Kaur Brar</td>
+                <td>Chaincode and asset layer, project submission, query functions, frontend/UI, regulator segregation,
+                    wallet connection</td>
+            </tr>
+            <tr>
+                <td class="highlight">Sreeram Saravana Prasad</td>
+                <td>Credit creation (minting logic), validation checks, AI risk score integration, frontend/UI
+                    development</td>
+            </tr>
+            <tr>
+                <td class="highlight">Asmi Umesh Pulgam</td>
+                <td>Ownership updates, transaction handling, project report creation</td>
+            </tr>
+            <tr>
+                <td class="highlight">Brijesh Kumar</td>
+                <td>Credit retirement logic, double spending prevention, frontend/UI development</td>
+            </tr>
+            <tr>
+                <td class="highlight">Vandhana Vemuri</td>
+                <td>Audit functions, history tracking, endorsement policy configuration, project report creation</td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- Slide 16: Thank You -->
+    <div class="slide" id="s16">
+        <div style="text-align:center;">
+            <h1 style="font-size:64px;">Thank You</h1>
+            <p style="font-size:24px; color:#6b7280; margin-top:20px;">Questions?</p>
+            <div style="margin-top:50px;">
+                <p style="font-size:18px; color:#4b5563;">GitHub Repository</p>
+                <p style="font-size:20px; color:#34d399; font-family:monospace;">
+                    github.com/sreeram2001/Team16_2026SpringB_CSE540_VeridiumMesh</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="nav">
+        <button onclick="prev()">← Prev</button>
+        <button onclick="next()">Next →</button>
+    </div>
+    <div class="counter" id="counter">1 / 16</div>
+
+    <script>
+        let current = 1;
+        const total = 16;
+
+        function show(n) {
+            document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+            document.getElementById('s' + n).classList.add('active');
+            document.getElementById('counter').textContent = n + ' / ' + total;
+        }
+
+        function next() { if (current < total) { current++; show(current); } }
+        function prev() { if (current > 1) { current--; show(current); } }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+        });
+    </script>
+
+</body>
+
+</html>

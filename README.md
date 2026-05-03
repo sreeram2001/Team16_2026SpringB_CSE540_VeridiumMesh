@@ -1,4 +1,4 @@
-# VeridiumAI — AI-Powered Carbon Credit Fraud Detection on Ethereum
+# VeridiumMesh — AI-Powered Carbon Credit Fraud Detection on Ethereum
 
 A decentralized system that uses an Isolation Forest anomaly detection model together with an Ethereum smart contract to catch fraudulent carbon credits before they ever make it on chain.
 
@@ -6,7 +6,7 @@ A decentralized system that uses an Isolation Forest anomaly detection model tog
 
 ## What This Project Does
 
-Carbon credit markets have a serious fraud problem. Projects inflate their issuance volumes, credits get double counted, and sometimes the projects behind them don't even exist. VeridiumAI tackles this by:
+Carbon credit markets have a serious fraud problem. Projects inflate their issuance volumes, credits get double counted, and sometimes the projects behind them don't even exist. VeridiumMesh tackles this by:
 
 1. Running every credit through a trained Isolation Forest model before it touches the blockchain. If the AI flags it as high risk (score >= 0.7), the credit gets rejected automatically.
 2. Requiring dual approval from both a project developer and a government regulator. Neither can mint a credit alone.
