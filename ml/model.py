@@ -4,7 +4,7 @@ import joblib
 
 basePath = os.path.dirname(os.path.abspath(__file__))
 
-# load the trained Isolation Forest and its scaler once at import time
+# loading the trained Isolation Forest and its scaler once at import time
 model = joblib.load(os.path.join(basePath, "isoforest.joblib"))
 scaler = joblib.load(os.path.join(basePath, "scaler.joblib"))
 normParams = joblib.load(os.path.join(basePath, "norm_params.joblib"))

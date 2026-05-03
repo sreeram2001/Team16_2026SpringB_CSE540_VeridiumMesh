@@ -1,14 +1,3 @@
-"""
-Unit + integration tests for the FastAPI Ethereum-based endpoints.
-
-Unit tests (TestValidation, TestStakeholders, TestMLFeatures):
-  - Run without a Hardhat node — all web3 calls are mocked.
-
-Integration tests (TestMintIntegration, TestChainEndpoints):
-  - Require a running Hardhat node at http://127.0.0.1:8545
-    AND a deployed contract at the default address.
-  - Skip automatically if the node is unreachable.
-"""
 
 import pytest
 from unittest.mock import patch, MagicMock
